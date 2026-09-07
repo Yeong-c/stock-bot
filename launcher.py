@@ -594,7 +594,7 @@ def run_gui() -> None:
     # ================= AI 추천 =================
     from stockbot.ai import ai_enabled
     from stockbot.ai.news import load_latest_news, run_news_brief
-    from stockbot.ai.recommend import load_latest_recommend, run_recommend
+    from stockbot.ai.recommend import analyze_stock, format_stock_analysis, load_latest_recommend, run_recommend
 
     ai_page = tk.Frame(body, bg="#f4f4f4")
     pages["ai"] = ai_page
@@ -608,9 +608,51 @@ def run_gui() -> None:
     ai_msg.pack(side="right", padx=12)
     reg(tk.Label(ai_page, text="검색식 여러 개에 같이 걸린 종목(정량 50점) + AI 가 최근 동향·공시를 평가한 점수(정성 50점). 참고용이며 매매 판단은 직접.",
                  bg="#f4f4f4", fg="#555", wraplength=820, justify="left"), -3).pack(anchor="w", pady=(2, 6))
+    ai_row = tk.Frame(ai_page, bg="#f4f4f4")
+    ai_row.pack(fill="x", pady=(0, 6))
+    reg(tk.Label(ai_row, text="종목 하나만 분석:", bg="#f4f4f4"), -1).pack(side="left")
+    ai_entry = reg(tk.Entry(ai_row, width=16, bd=2, relief="solid"), -1)
+    ai_entry.pack(side="left", padx=8, ipady=4)
+    ai_one_btn = big_button(ai_row, "종목 분석", lambda: do_ai_one(), "#4a90d9", delta=-2)
+    ai_one_btn.pack(side="left")
+    ai_back_btn = big_button(ai_row, "추천 목록으로", lambda: render_ai(), "#888", delta=-2)
+    ai_back_btn.pack(side="left", padx=8)
+    ai_entry.bind("<Return>", lambda e: do_ai_one())
     ai_fr, ai_text = make_text(ai_page)
     ai_fr.pack(fill="both", expand=True)
     busy = {"ai": False, "news": False}
+
+    def do_ai_one():
+        q = ai_entry.get().strip()
+        if not q or busy["ai"]:
+            return
+        if not ai_enabled(cfg):
+            ai_msg.config(text="AI 키가 없습니다"); return
+
+        def go():
+            cands = resolve_name(q, listing["df"])
+            if not cands:
+                ai_msg.config(text=f"'{q}' 종목을 찾지 못했습니다"); return
+            code, name = next(((c, n) for c, n in cands if n == q), cands[0])
+            busy["ai"] = True
+            ai_one_btn.config(state="disabled")
+            ai_msg.config(text=f"{name} 분석 중… (30초~1분)")
+
+            def work():
+                try:
+                    from stockbot.data import naver
+                    rt = naver.fetch_realtime([code]).get(code, {})
+                    r = analyze_stock(load_config(), code, name, float(rt.get("price") or 0), float(rt.get("change_pct") or 0))
+                    txt = format_stock_analysis(r)
+                    root.after(0, lambda: (ai_msg.config(text="완료"), ai_title.config(text=f"{name} AI 분석"),
+                                           set_text(ai_text, [(txt + "\n", "n")])))
+                except Exception as e:  # noqa: BLE001
+                    root.after(0, lambda: ai_msg.config(text=f"실패: {str(e)[:70]}"))
+                finally:
+                    busy["ai"] = False
+                    root.after(0, lambda: ai_one_btn.config(state="normal"))
+            threading.Thread(target=work, daemon=True).start()
+        ensure_listing(go)
 
     def render_ai():
         if not ai_enabled(cfg):

@@ -22,4 +22,4 @@ def get_client(cfg: dict):
 
 
 def model_of(cfg: dict) -> str:
-    return str(cfg.get("ai", {}).get("model", "claude-opus-5") or "claude-opus-5")
+    return str(cfg.get("ai", {}).get("model", "claude-sonnet-5") or "claude-sonnet-5")

@@ -1,4 +1,4 @@
-"""Claude 호출 공통: 웹검색 도구 + JSON 구조화 출력 + pause_turn 처리."""
+"""Claude 호출 공통: 웹검색 도구 + JSON 구조화 출력 + pause_turn 처리. 모델별 지원 차이를 흡수한다."""
 from __future__ import annotations
 
 import json
@@ -9,21 +9,36 @@ from . import model_of
 
 log = logging.getLogger("stockbot.ai")
 
-WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
+
+def _caps(model: str) -> dict:
+    """모델별 지원 기능. haiku 4.5 는 구형 웹검색 도구만 되고 effort 를 못 받는다."""
+    m = model.lower()
+    old = m.startswith("claude-haiku") or "4-5" in m
+    return {
+        "web_search_type": "web_search_20250305" if old else "web_search_20260209",
+        "effort": not old,
+        "fallbacks": m.startswith(("claude-opus-5", "claude-fable")),
+    }
 
 
 def ask_json(client, cfg: dict, system: str, user: str, schema: dict, *, web_search: bool = True,
              max_uses: int = 4, effort: str = "medium", max_tokens: int = 8000) -> dict[str, Any]:
     """웹검색(선택)을 곁들여 질문하고 JSON(schema) 으로 답을 받는다."""
+    model = model_of(cfg)
+    caps = _caps(model)
     tools = []
     if web_search and cfg.get("ai", {}).get("web_search", True):
-        tools.append({**WEB_SEARCH_TOOL, "max_uses": max_uses, "user_location": {"type": "approximate", "country": "KR", "timezone": "Asia/Seoul"}})
+        tools.append({"type": caps["web_search_type"], "name": "web_search", "max_uses": max_uses,
+                      "user_location": {"type": "approximate", "country": "KR", "timezone": "Asia/Seoul"}})
     messages: list[dict] = [{"role": "user", "content": user}]
-    kwargs: dict[str, Any] = dict(
-        model=model_of(cfg), max_tokens=max_tokens, system=system, messages=messages,
-        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-        betas=["server-side-fallback-2026-07-01"], fallbacks="default",
-    )
+    output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": schema}}
+    if caps["effort"]:
+        output_config["effort"] = effort
+    kwargs: dict[str, Any] = dict(model=model, max_tokens=max_tokens, system=system, messages=messages,
+                                  output_config=output_config)
+    if caps["fallbacks"]:
+        kwargs["betas"] = ["server-side-fallback-2026-07-01"]
+        kwargs["fallbacks"] = "default"
     if tools:
         kwargs["tools"] = tools
     text = ""

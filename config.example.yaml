@@ -43,7 +43,7 @@ update:
 ai:
   # Anthropic(Claude) API 키 — https://console.anthropic.com 에서 발급. 비우면 AI 추천/아침 뉴스 기능 꺼짐
   api_key: ""
-  model: "claude-opus-5"        # 비용을 줄이려면 "claude-sonnet-5"
+  model: "claude-sonnet-5"      # 저렴·빠름. 더 싸게: "claude-haiku-4-5", 더 정밀: "claude-opus-5"
   effort: "medium"              # low / medium / high
   web_search: true              # 최신 뉴스 웹검색 사용
   candidates: 20                # 검색식 교집합 상위 몇 종목을 AI 가 검토할지

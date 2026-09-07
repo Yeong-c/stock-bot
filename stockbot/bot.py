@@ -21,7 +21,7 @@ from .screeners.minute import MinuteMonitor
 from .screeners.runner import load_latest_result, run_daily_scan
 from . import updater
 from .ai import ai_enabled
-from .ai.recommend import format_recommend, load_latest_recommend, run_recommend
+from .ai.recommend import analyze_stock, format_recommend, format_stock_analysis, load_latest_recommend, run_recommend
 from .ai.news import format_news, load_latest_news, run_news_brief
 from .state import State
 
@@ -290,6 +290,10 @@ class StockBot:
         elif pending == "del":
             await self.handle_del(update, text)
         else:
+            m2 = re.match(r"^(.+?)\s*(분석|AI분석|ai분석)\s*$", text)
+            if m2:
+                await self.handle_analyze(update, m2.group(1).strip())
+                return
             m = re.match(r"^(.+?)\s*(추가|삭제|빼|제거)\s*$", text)
             if m:
                 q, act = m.group(1), m.group(2)
@@ -298,7 +302,7 @@ class StockBot:
                 else:
                     await self.handle_del(update, q)
             else:
-                await self.reply(update, "아래 버튼을 눌러 사용하세요. (종목 이름 뒤에 '추가'/'삭제'를 붙여 보내도 됩니다)")
+                await self.reply(update, "아래 버튼을 눌러 사용하세요. (종목 이름 뒤에 '추가'/'삭제'/'분석'을 붙여 보내도 됩니다. 예: 삼성전자 분석)")
 
     # ───────────────────────── 감시 종목 관리 ─────────────────────────
     async def handle_add(self, update: Update, query: str):
@@ -511,6 +515,25 @@ class StockBot:
                 await self.notify_error("AI 추천", e); return
         for m in F.split_message(format_recommend(res)):
             await self.send_all(m)
+
+    async def handle_analyze(self, update: Update, query: str):
+        """'삼성전자 분석' → 그 종목만 AI 분석 (이전 분석 기록 참고·누적)."""
+        if not ai_enabled(self.cfg):
+            await self.reply(update, self._ai_off_text()); return
+        if self.listing is None:
+            await self.refresh_listing()
+        cands = resolve_name(query, self.listing) if self.listing is not None else []
+        if not cands:
+            await self.reply(update, f"'{query}' 종목을 찾지 못했습니다."); return
+        code, name = next(((c, n) for c, n in cands if n == query), cands[0])
+        await self.reply(update, f"🔍 {name} 을(를) AI 가 분석 중입니다… (30초~1분)")
+        try:
+            from .data import naver
+            rt = (await asyncio.to_thread(naver.fetch_realtime, [code])).get(code, {})
+            r = await asyncio.to_thread(analyze_stock, self.cfg, code, name, float(rt.get("price") or 0), float(rt.get("change_pct") or 0))
+        except Exception as e:  # noqa: BLE001
+            await self.notify_error("종목 AI 분석", e); return
+        await self.reply(update, format_stock_analysis(r))
 
     async def news_menu(self, update: Update):
         if not ai_enabled(self.cfg):
