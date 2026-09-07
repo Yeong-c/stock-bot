@@ -40,8 +40,20 @@ update:
   repo: ""
   branch: "main"
 
+ai:
+  # Anthropic(Claude) API 키 — https://console.anthropic.com 에서 발급. 비우면 AI 추천/아침 뉴스 기능 꺼짐
+  api_key: ""
+  model: "claude-opus-5"        # 비용을 줄이려면 "claude-sonnet-5"
+  effort: "medium"              # low / medium / high
+  web_search: true              # 최신 뉴스 웹검색 사용
+  candidates: 20                # 검색식 교집합 상위 몇 종목을 AI 가 검토할지
+  top_n: 10                     # 최종 추천 개수
+  workers: 3                    # 동시에 분석할 종목 수
+  auto_after_scan: true         # 15:45 장 마감 검색 후 자동으로 AI 추천 실행·발송
+  news_brief_time: "08:20"      # 아침 뉴스 정리 발송 시각 (평일)
+
 output:
-  max_per_screener: 10             # 검색식당 최대 표시 종목 수 (아버지 눈 편하게 10개)
+  max_per_screener: 20             # 텔레그램 메시지에 표시할 검색식당 종목 수 (데스크톱 창은 전부 표시)
 
 screeners:
   minute_burst:                    # 1. 분봉 거래폭발 (장중 실시간)

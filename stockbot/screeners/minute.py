@@ -59,8 +59,19 @@ class MinuteMonitor:
                 log.warning("키움 분봉 수집 실패 %s: %s (네이버로 대체)", code, e)
 
         if bars is None or len(bars) < 100:
-            bars = naver.fetch_minute_bars(code)
-            source = "네이버(최근 7거래일)"
+            fresh = naver.fetch_minute_bars(code)
+            # 네이버는 최근 7거래일만 주므로, 매일 받은 것을 파일에 누적해 점점 긴 기준(최대 1년)을 만든다
+            hist = load_minute_history(code)
+            if hist is not None and len(hist):
+                fresh = fresh.reindex(columns=["ts", "close", "volume"])
+                merged = (pd.concat([hist[["ts", "close", "volume"]], fresh]).sort_values("ts")
+                          .drop_duplicates("ts", keep="last").reset_index(drop=True))
+            else:
+                merged = fresh
+            if len(merged):
+                save_minute_history(code, merged)
+            bars = merged
+            source = "네이버 누적"
 
         bars = bars[(bars["ts"] >= since) & (bars["ts"].dt.date < today)]
         t = bars["ts"].dt.time

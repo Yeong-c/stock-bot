@@ -126,6 +126,38 @@ def run_gui() -> None:
     def fnt(delta=0, bold=False):
         return (FAM, size["v"] + delta, "bold" if bold else "normal")
 
+    class CButton(tk.Label):
+        """색상이 모든 OS 에서 먹는 버튼 (Label + 클릭 바인딩)."""
+        def __init__(self, parent, text, command, color="#4a90d9", fg="white", padx=18, pady=8, **kw):
+            super().__init__(parent, text=text, bg=color, fg=fg, padx=padx, pady=pady, cursor="hand2", **kw)
+            self._color, self._fg, self._cmd, self._state = color, fg, command, "normal"
+            self.bind("<Button-1>", self._click)
+            self.bind("<Enter>", lambda e: self._state == "normal" and self.configure(bg=self._darken(self._color)))
+            self.bind("<Leave>", lambda e: self._state == "normal" and self.configure(bg=self._color))
+
+        @staticmethod
+        def _darken(hexcol):
+            r, g, b = (int(hexcol[i:i + 2], 16) for i in (1, 3, 5))
+            return "#%02x%02x%02x" % (int(r * 0.85), int(g * 0.85), int(b * 0.85))
+
+        def _click(self, e=None):
+            if self._state == "normal" and self._cmd:
+                self._cmd()
+
+        def config(self, **kw):
+            if "state" in kw:
+                self._state = kw.pop("state")
+                super().configure(bg="#c8c8c8" if self._state == "disabled" else self._color,
+                                  fg="#666" if self._state == "disabled" else self._fg,
+                                  cursor="arrow" if self._state == "disabled" else "hand2")
+            if "bg" in kw and self._state == "normal":
+                self._color = kw["bg"]
+            if "fg" in kw and self._state == "normal":
+                self._fg = kw["fg"]
+            if kw:
+                super().configure(**kw)
+        configure = config
+
     def name_of(code: str) -> str:
         df = listing["df"]
         if df is not None:
@@ -155,10 +187,10 @@ def run_gui() -> None:
     refreshers: dict = {}
 
     tk.Label(side, text="아빠 주식\n알림봇", font=(FAM, 20, "bold"), fg="white", bg="#2b3a4a").pack(pady=(24, 18))
-    for key, label in [("home", "홈"), ("results", "검색 결과"), ("watch", "감시 종목"), ("alerts", "오늘 알림"), ("help", "설명")]:
-        b = tk.Button(side, text=label, font=(FAM, 17, "bold"), fg="white", bg="#2b3a4a", activebackground="#4a90d9",
-                      activeforeground="white", bd=0, relief="flat", height=2, cursor="hand2",
-                      command=lambda k=key: show(k))
+    for key, label in [("home", "홈"), ("results", "검색 결과"), ("ai", "AI 추천"), ("news", "오늘 뉴스"),
+                       ("watch", "감시 종목"), ("alerts", "오늘 알림"), ("help", "설명")]:
+        b = CButton(side, label, lambda k=key: show(k), color="#2b3a4a", fg="white", padx=4, pady=12,
+                    font=(FAM, 17, "bold"))
         b.pack(fill="x", padx=10, pady=3)
         menu_btns[key] = b
 
@@ -170,8 +202,8 @@ def run_gui() -> None:
         size["v"] = max(12, min(26, size["v"] + delta))
         apply_fonts()
 
-    tk.Button(fs, text="작게", font=(FAM, 12), command=lambda: resize(-2), width=5).grid(row=0, column=1, padx=2)
-    tk.Button(fs, text="크게", font=(FAM, 12), command=lambda: resize(+2), width=5).grid(row=0, column=2, padx=2)
+    CButton(fs, "작게", lambda: resize(-2), color="#4a5a6a", fg="white", padx=10, pady=4, font=(FAM, 12)).grid(row=0, column=1, padx=2)
+    CButton(fs, "크게", lambda: resize(+2), color="#4a5a6a", fg="white", padx=10, pady=4, font=(FAM, 12)).grid(row=0, column=2, padx=2)
 
     scalable: list[tuple[tk.Widget, int, bool]] = []  # (widget, delta, bold)
 
@@ -214,8 +246,7 @@ def run_gui() -> None:
         t.configure(state="disabled")
 
     def big_button(parent, text, cmd, color="#4a90d9", fg="white", delta=0):
-        return reg(tk.Button(parent, text=text, command=cmd, bg=color, fg=fg, activebackground=color,
-                             activeforeground=fg, bd=0, relief="flat", padx=18, pady=8, cursor="hand2"), delta, True)
+        return reg(CButton(parent, text, cmd, color=color, fg=fg), delta, True)
 
     # ================= 홈 =================
     home = tk.Frame(body, bg="#f4f4f4")
@@ -383,8 +414,7 @@ def run_gui() -> None:
         if not cfg["screeners"].get(key, {}).get("enabled", True):
             continue
         clean = label.split(" ", 1)[1] if " " in label else label
-        b = reg(tk.Button(bar, text=clean, command=lambda k=key: pick(k), bg="#e5e7eb", fg="#222", bd=0, relief="flat",
-                          padx=10, pady=6, cursor="hand2", activebackground="#cbd5e1"), -2, True)
+        b = reg(CButton(bar, clean, lambda k=key: pick(k), color="#e5e7eb", fg="#222", padx=10, pady=6), -2, True)
         b.pack(side="left", padx=3)
         sbtns[key] = b
     res_fr, res_text = make_text(res_page)
@@ -410,6 +440,7 @@ def run_gui() -> None:
             base = dict(F.SCREENER_ORDER)[k]
             base = base.split(" ", 1)[1] if " " in base else base
             b.config(text=base + cnt, bg="#4a90d9" if k == sel["key"] else "#e5e7eb", fg="white" if k == sel["key"] else "#222")
+            b._color = "#4a90d9" if k == sel["key"] else "#e5e7eb"
         if not out:
             res_title.config(text="검색 결과 (아직 없음)")
             set_text(res_text, [("아직 검색 결과가 없습니다. 오른쪽 위 '지금 검색'을 눌러주세요.\n", "n")])
@@ -423,12 +454,9 @@ def run_gui() -> None:
         parts = [(F.SCREENER_HELP.get(sel["key"], "").split("\n", 1)[-1] + "\n", "s"), ("\n", "n")]
         if not r["signals"]:
             parts.append(("해당 종목 없음\n", "n"))
-        maxn = int(cfg["output"].get("max_per_screener", 10))
-        for i, sg in enumerate(r["signals"][:maxn], 1):
+        for i, sg in enumerate(r["signals"], 1):  # 데스크톱은 전부 표시
             parts += signal_parts(sg, i)
             parts.append(("\n", "n"))
-        if r["count"] > maxn:
-            parts.append((f"… 외 {r['count'] - maxn}종목 (상위 {maxn}개만 표시)\n", "s"))
         parts.append(("\n" + F.COMMON_FILTER_NOTE + "\n", "s"))
         set_text(res_text, parts)
 
@@ -563,6 +591,138 @@ def run_gui() -> None:
 
     refreshers["watch"] = render_watch
 
+    # ================= AI 추천 =================
+    from stockbot.ai import ai_enabled
+    from stockbot.ai.news import load_latest_news, run_news_brief
+    from stockbot.ai.recommend import load_latest_recommend, run_recommend
+
+    ai_page = tk.Frame(body, bg="#f4f4f4")
+    pages["ai"] = ai_page
+    ai_top = tk.Frame(ai_page, bg="#f4f4f4")
+    ai_top.pack(fill="x")
+    ai_title = reg(tk.Label(ai_top, text="AI 추천", bg="#f4f4f4", fg="#222"), 4, True)
+    ai_title.pack(side="left")
+    ai_btn = big_button(ai_top, "지금 AI 분석", lambda: do_ai(), "#7c3aed", delta=-1)
+    ai_btn.pack(side="right")
+    ai_msg = reg(tk.Label(ai_top, text="", bg="#f4f4f4", fg="#1a5fb4"), -2)
+    ai_msg.pack(side="right", padx=12)
+    reg(tk.Label(ai_page, text="검색식 여러 개에 같이 걸린 종목(정량 50점) + AI 가 최근 동향·공시를 평가한 점수(정성 50점). 참고용이며 매매 판단은 직접.",
+                 bg="#f4f4f4", fg="#555", wraplength=820, justify="left"), -3).pack(anchor="w", pady=(2, 6))
+    ai_fr, ai_text = make_text(ai_page)
+    ai_fr.pack(fill="both", expand=True)
+    busy = {"ai": False, "news": False}
+
+    def render_ai():
+        if not ai_enabled(cfg):
+            ai_title.config(text="AI 추천 (꺼짐)")
+            set_text(ai_text, [("AI 기능이 꺼져 있습니다.\n", "h"),
+                               ("config.yaml 의 ai.api_key 에 Anthropic API 키를 넣으면 켜집니다. (https://console.anthropic.com)\n", "n")])
+            ai_btn.config(state="disabled"); return
+        res = load_latest_recommend()
+        if not res:
+            ai_title.config(text="AI 추천 (아직 없음)")
+            set_text(ai_text, [("아직 AI 추천 결과가 없습니다. 오른쪽 위 '지금 AI 분석'을 누르세요. (3~6분)\n", "n")]); return
+        ai_title.config(text=f"AI 추천 {len(res.get('items', []))}종목 — {res.get('date')} 기준")
+        parts = [(f"후보 {res.get('n_candidates')}종목 검토 · {res.get('generated_at', '')} 생성\n\n", "s")]
+        for i, c in enumerate(res.get("items", []), 1):
+            ai = c.get("ai", {})
+            chg = c.get("change_pct", 0)
+            parts += [(f"{i}. {c['name']} ", "h"), (f"({c['code']})  ", "s"), (f"{c['price']:,.0f}원  ", "b"),
+                      (f"{chg:+.1f}%   ", "up" if chg >= 0 else "down"), (f"종합 {c.get('final', 0)}점\n", "b"),
+                      (f"      검색식 {len(c.get('hits', []))}개: {', '.join(c.get('hits', []))}  ·  AI {ai.get('score', 0)}/10\n", "s"),
+                      (f"      💬 {ai.get('summary', '')}\n", "n")]
+            for x in ai.get("positives", [])[:3]:
+                parts.append((f"      ＋ {x}\n", "s"))
+            for x in ai.get("risks", [])[:3]:
+                parts.append((f"      － {x}\n", "s"))
+            for x in ai.get("recent", [])[:3]:
+                parts.append((f"      · {x}\n", "s"))
+            parts.append(("\n", "n"))
+        set_text(ai_text, parts)
+
+    def do_ai():
+        if busy["ai"]:
+            return
+        busy["ai"] = True
+        ai_btn.config(state="disabled")
+        ai_msg.config(text="AI 분석 중… (3~6분)")
+
+        def work():
+            try:
+                state.refresh_if_changed()
+                run_recommend(load_config(), None, today_alerts(), progress=lambda m: root.after(0, lambda m=m: ai_msg.config(text=m[:60])))
+                root.after(0, lambda: ai_msg.config(text="완료"))
+            except Exception as e:  # noqa: BLE001
+                root.after(0, lambda: ai_msg.config(text=f"실패: {str(e)[:70]}"))
+            finally:
+                busy["ai"] = False
+                root.after(0, lambda: (ai_btn.config(state="normal"), render_ai()))
+        threading.Thread(target=work, daemon=True).start()
+
+    refreshers["ai"] = render_ai
+
+    # ================= 오늘 뉴스 =================
+    news_page = tk.Frame(body, bg="#f4f4f4")
+    pages["news"] = news_page
+    nw_top = tk.Frame(news_page, bg="#f4f4f4")
+    nw_top.pack(fill="x")
+    nw_title = reg(tk.Label(nw_top, text="오늘 뉴스", bg="#f4f4f4", fg="#222"), 4, True)
+    nw_title.pack(side="left")
+    nw_btn = big_button(nw_top, "지금 뉴스 정리", lambda: do_news(), "#0e7490", delta=-1)
+    nw_btn.pack(side="right")
+    nw_msg = reg(tk.Label(nw_top, text="", bg="#f4f4f4", fg="#1a5fb4"), -2)
+    nw_msg.pack(side="right", padx=12)
+    reg(tk.Label(news_page, text="금리·환율·미국증시·유가·지정학·반도체 등 오늘 시장에 영향 주는 뉴스를 AI 가 정리합니다. 평일 08:20 자동.",
+                 bg="#f4f4f4", fg="#555", wraplength=820, justify="left"), -3).pack(anchor="w", pady=(2, 6))
+    nw_fr, nw_text = make_text(news_page)
+    nw_fr.pack(fill="both", expand=True)
+    _ICON = {"호재": ("▲ 호재", "up"), "악재": ("▼ 악재", "down"), "중립": ("● 중립", "s")}
+
+    def render_news():
+        if not ai_enabled(cfg):
+            nw_title.config(text="오늘 뉴스 (꺼짐)")
+            set_text(nw_text, [("AI 기능이 꺼져 있습니다.\n", "h"),
+                               ("config.yaml 의 ai.api_key 에 Anthropic API 키를 넣으면 켜집니다.\n", "n")])
+            nw_btn.config(state="disabled"); return
+        res = load_latest_news()
+        if not res:
+            nw_title.config(text="오늘 뉴스 (아직 없음)")
+            set_text(nw_text, [("아직 뉴스 정리가 없습니다. 오른쪽 위 '지금 뉴스 정리'를 누르세요. (1~3분)\n", "n")]); return
+        nw_title.config(text=f"오늘 뉴스 — {res.get('date')} {res.get('generated_at', '')[-5:]}")
+        parts = [(f"분위기: {res.get('mood', '')}  ", "h"), (f"{res.get('one_liner', '')}\n\n", "n")]
+        for it in res.get("items", []):
+            lab, tag = _ICON.get(it.get("impact", ""), ("● 중립", "s"))
+            parts += [(f"[{it.get('topic', '')}] ", "s"), (f"{it.get('headline', '')}  ", "h"), (lab + "\n", tag),
+                      (f"      {it.get('detail', '')}\n", "n")]
+            if it.get("affected"):
+                parts.append((f"      → 영향: {', '.join(it['affected'][:3])}\n", "s"))
+            parts.append(("\n", "n"))
+        if res.get("today_watch"):
+            parts.append(("오늘 볼 것\n", "h"))
+            for x in res["today_watch"][:4]:
+                parts.append((f"  · {x}\n", "n"))
+        set_text(nw_text, parts)
+
+    def do_news():
+        if busy["news"]:
+            return
+        busy["news"] = True
+        nw_btn.config(state="disabled")
+        nw_msg.config(text="뉴스 정리 중… (1~3분)")
+
+        def work():
+            try:
+                run_news_brief(load_config(), progress=lambda m: root.after(0, lambda m=m: nw_msg.config(text=m[:60])))
+                root.after(0, lambda: nw_msg.config(text="완료"))
+            except Exception as e:  # noqa: BLE001
+                root.after(0, lambda: nw_msg.config(text=f"실패: {str(e)[:70]}"))
+            finally:
+                busy["news"] = False
+                root.after(0, lambda: (nw_btn.config(state="normal"), render_news()))
+        threading.Thread(target=work, daemon=True).start()
+
+    refreshers["news"] = render_news
+
     # ================= 오늘 알림 =================
     apage = tk.Frame(body, bg="#f4f4f4")
     pages["alerts"] = apage
@@ -596,6 +756,8 @@ def run_gui() -> None:
     hparts.append(("• 홈: 봇 켜기/종료. '● 실행 중'이면 정상. 창은 닫지 말고 작게 두세요.\n"
                    "• 검색 결과: 위 버튼으로 검색식을 고르면 결과가 나옵니다. '지금 검색'은 1~3분 걸립니다. 장 마감 후 15:45에 자동으로도 돌아갑니다.\n"
                    "• 감시 종목: 종목 이름을 넣고 '추가'. 장중에 거래량이 터지면 홈·오늘 알림·텔레그램에 뜹니다.\n"
+                   "• AI 추천: 검색식 여러 개에 같이 걸린 종목을 AI 가 최근 뉴스·공시로 평가한 상위 10개. 장 마감 후 자동.\n"
+                   "• 오늘 뉴스: 금리·환율·미국증시 등 오늘 시장 뉴스 정리. 평일 아침 자동.\n"
                    "• 글씨가 작으면 왼쪽 아래 '크게'를 누르세요.\n", "n"))
     set_text(h_text, hparts)
 
@@ -614,11 +776,11 @@ def run_gui() -> None:
         root.after(200, bot.start)
     if "--smoke" in sys.argv:  # 테스트용: 모든 페이지를 그려보고 내용 요약 출력 후 종료
         def smoke():
-            for name in ("home", "results", "watch", "alerts", "help"):
+            for name in ("home", "results", "ai", "news", "watch", "alerts", "help"):
                 show(name)
                 root.update()
                 print(f"[{name}] ok")
-            for t, label in ((res_text, "results"), (a_text, "alerts"), (h_text, "help"), (home_text, "home")):
+            for t, label in ((res_text, "results"), (ai_text, "ai"), (nw_text, "news"), (a_text, "alerts"), (h_text, "help"), (home_text, "home")):
                 txt = t.get("1.0", "end").strip()
                 print(f"  {label}: {len(txt)}자 / 첫줄: {txt.splitlines()[0][:70] if txt else '(빈칸)'}")
             print("  watch rows:", wlist.size(), "|", wlist.get(0)[:70])
