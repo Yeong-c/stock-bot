@@ -41,17 +41,39 @@ def ask_json(client, cfg: dict, system: str, user: str, schema: dict, *, web_sea
         kwargs["fallbacks"] = "default"
     if tools:
         kwargs["tools"] = tools
+    import anthropic
+
+    def _run(kw: dict) -> str:
+        out = ""
+        for _ in range(6):  # pause_turn 재개 최대 5회
+            resp = client.beta.messages.create(**kw)
+            if resp.stop_reason == "refusal":
+                raise RuntimeError("모델이 답변을 거부했습니다")
+            if resp.stop_reason == "pause_turn":
+                # 서버 도구 반복 한도 → 지금까지의 assistant 턴을 그대로 붙여 이어가기
+                content = [b.model_dump(mode="json", exclude_none=True) for b in resp.content]
+                kw["messages"] = messages + [{"role": "assistant", "content": content}]
+                continue
+            texts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
+            out = texts[-1] if texts else ""
+            break
+        return out
+
     text = ""
-    for _ in range(6):  # pause_turn 재개 최대 5회
-        resp = client.beta.messages.create(**kwargs)
-        if resp.stop_reason == "refusal":
-            raise RuntimeError("모델이 답변을 거부했습니다")
-        if resp.stop_reason == "pause_turn":
-            kwargs["messages"] = messages + [{"role": "assistant", "content": resp.content}]
-            continue
-        texts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
-        text = texts[-1] if texts else ""
-        break
+    try:
+        text = _run(dict(kwargs))
+    except anthropic.BadRequestError as e:
+        # 간헐적 'Invalid request data' → 검색 횟수를 줄여 한 번 더, 그래도 안 되면 검색 없이
+        log.warning("요청 오류(%s) → 검색 축소 후 재시도", str(e)[:120])
+        if tools:
+            tools[0]["max_uses"] = min(3, max_uses)
+            try:
+                text = _run(dict(kwargs))
+            except anthropic.BadRequestError:
+                kwargs.pop("tools", None)
+                text = _run(dict(kwargs))
+        else:
+            raise
     if not text:
         raise RuntimeError("모델 응답이 비어 있습니다")
     try:

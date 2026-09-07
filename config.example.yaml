@@ -37,7 +37,7 @@ filters:
 
 update:
   # 업데이트를 받아올 GitHub 공개 저장소 (예: "hong-yeongchae/dad-stock-bot"). 비우면 업데이트 기능 꺼짐
-  repo: ""
+  repo: "Yeong-c/stock-bot"
   branch: "main"
 
 ai:
