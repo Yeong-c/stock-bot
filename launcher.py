@@ -187,7 +187,7 @@ def run_gui() -> None:
     refreshers: dict = {}
 
     tk.Label(side, text="아빠 주식\n알림봇", font=(FAM, 20, "bold"), fg="white", bg="#2b3a4a").pack(pady=(24, 18))
-    for key, label in [("home", "홈"), ("results", "검색 결과"), ("watch", "감시 종목"), ("alerts", "오늘 알림"), ("help", "설명")]:
+    for key, label in [("home", "홈"), ("results", "검색 결과"), ("brief", "오늘 시황"), ("watch", "감시 종목"), ("alerts", "오늘 알림"), ("help", "설명")]:
         b = CButton(side, label, lambda k=key: show(k), color="#2b3a4a", fg="white", padx=4, pady=12,
                     font=(FAM, 17, "bold"))
         b.pack(fill="x", padx=10, pady=3)
@@ -416,12 +416,32 @@ def run_gui() -> None:
         b = reg(CButton(bar, clean, lambda k=key: pick(k), color="#e5e7eb", fg="#222", padx=10, pady=6), -2, True)
         b.pack(side="left", padx=3)
         sbtns[key] = b
+    show_seen = tk.BooleanVar(value=False)
+    seen_cb = reg(tk.Checkbutton(bar, text="이전에 뜬 것도 보기", variable=show_seen, bg="#f4f4f4", activebackground="#f4f4f4",
+                                 command=lambda: render_results()), -3)
+    seen_cb.pack(side="right", padx=6)
+    ov_btn = reg(CButton(bar, "겹침", lambda: pick("overlap"), color="#e5e7eb", fg="#222", padx=10, pady=6), -2, True)
+    ov_btn.pack(side="left", padx=3)
+    sbtns["overlap"] = ov_btn
     res_fr, res_text = make_text(res_page)
     res_fr.pack(fill="both", expand=True)
 
     def pick(key):
         sel["key"] = key
         render_results()
+
+    def render_overlap(out):
+        rows = out.get("overlap", [])
+        res_title.config(text=f"여러 검색식에 같이 걸린 종목 {len(rows)}개  —  {out.get('date')} 기준")
+        parts = [("점수 = 걸린 검색식 수 + 상위권 가산. 아버지 말씀의 '교집합' 목록입니다.\n\n", "s")]
+        if not rows:
+            parts.append(("오늘은 두 개 이상 겹친 종목이 없습니다.\n", "n"))
+        for i, c in enumerate(rows, 1):
+            chg = c.get("change_pct", 0)
+            parts += [(f"{i}. {c['name']} ", "h"), (f"({c['code']})  ", "s"), (f"{c['price']:,.0f}원  ", "b"),
+                      (f"{chg:+.1f}%   ", "up" if chg >= 0 else "down"), (f"{c['score']}점\n", "b"),
+                      (f"      {len(c['titles'])}개: {', '.join(c['titles'])}\n\n", "s")]
+        set_text(res_text, parts)
 
     def signal_parts(sig: dict, i: int):
         chg = sig.get("change_pct", 0)
@@ -434,12 +454,18 @@ def run_gui() -> None:
         for k, b in sbtns.items():
             cnt = ""
             if out:
-                r = out.get("results", {}).get(k)
-                cnt = f" ({r['count']})" if r else ""
-            base = dict(F.SCREENER_ORDER)[k]
+                if k == "overlap":
+                    cnt = f" ({len(out.get('overlap', []))})"
+                else:
+                    r = out.get("results", {}).get(k)
+                    cnt = f" ({r.get('count_new', r['count'])}/{r['count']})" if r else ""
+            base = "겹침" if k == "overlap" else dict(F.SCREENER_ORDER)[k]
             base = base.split(" ", 1)[1] if " " in base else base
             b.config(text=base + cnt, bg="#4a90d9" if k == sel["key"] else "#e5e7eb", fg="white" if k == sel["key"] else "#222")
             b._color = "#4a90d9" if k == sel["key"] else "#e5e7eb"
+        if out and sel["key"] == "overlap":
+            render_overlap(out)
+            return
         if not out:
             res_title.config(text="검색 결과 (아직 없음)")
             set_text(res_text, [("아직 검색 결과가 없습니다. 오른쪽 위 '지금 검색'을 눌러주세요.\n", "n")])
@@ -450,12 +476,24 @@ def run_gui() -> None:
         res_title.config(text=f"{label}  —  {out.get('date')} 기준")
         if not r:
             set_text(res_text, [("이 검색식은 꺼져 있습니다.\n", "n")]); return
-        parts = [(F.SCREENER_HELP.get(sel["key"], "").split("\n", 1)[-1] + "\n", "s"), ("\n", "n")]
+        parts = [(F.SCREENER_HELP.get(sel["key"], "").split("\n", 1)[-1] + "\n", "s")]
+        new, seen = F.split_new_seen(r["signals"])
+        rd = int(cfg.get("output", {}).get("repeat_days", 20))
+        parts.append((f"새로 뜬 종목 {len(new)}개 · 최근 {rd}일 안에 이미 떴던 종목 {len(seen)}개 (버튼 숫자 = 새로/전체)\n\n", "s"))
         if not r["signals"]:
             parts.append(("해당 종목 없음\n", "n"))
-        for i, sg in enumerate(r["signals"], 1):  # 데스크톱은 전부 표시
+        for i, sg in enumerate(new, 1):  # 데스크톱은 전부 표시
             parts += signal_parts(sg, i)
             parts.append(("\n", "n"))
+        if seen:
+            if show_seen.get():
+                parts.append((f"↩ 최근 {rd}일 안에 이미 떴던 종목\n\n", "h"))
+                for i, sg in enumerate(seen, len(new) + 1):
+                    parts += signal_parts(sg, i)
+                    parts.append(((f"      (이전에 뜬 날: {', '.join(d[5:] for d in sg['seen'][-5:])})\n\n"), "s"))
+            else:
+                names = ", ".join(f"{sg['name']}({sg['seen'][-1][5:]})" for sg in seen)
+                parts.append((f"↩ 이미 떴던 종목 {len(seen)}개 (위 '이전에 뜬 것도 보기' 체크하면 펼침): {names}\n", "s"))
         parts.append(("\n" + F.COMMON_FILTER_NOTE + "\n", "s"))
         set_text(res_text, parts)
 
@@ -622,6 +660,63 @@ def run_gui() -> None:
 
     refreshers["watch"] = render_watch
 
+    # ================= 오늘 시황 (AI 없이 지수·환율·뉴스 제목) =================
+    from stockbot.data import market as MK
+    bpage = tk.Frame(body, bg="#f4f4f4")
+    pages["brief"] = bpage
+    btop = tk.Frame(bpage, bg="#f4f4f4")
+    btop.pack(fill="x")
+    btitle = reg(tk.Label(btop, text="오늘 시황", bg="#f4f4f4", fg="#222"), 4, True)
+    btitle.pack(side="left")
+    bbtn = big_button(btop, "새로 가져오기", lambda: do_brief(), "#0e7490", delta=-1)
+    bbtn.pack(side="right")
+    bmsg = reg(tk.Label(btop, text="", bg="#f4f4f4", fg="#1a5fb4"), -2)
+    bmsg.pack(side="right", padx=12)
+    reg(tk.Label(bpage, text="간밤 미국 지수, 코스피·코스닥, 달러/원·유가·금, 네이버 주요뉴스 제목. 아침 08:30 텔레그램으로도 옵니다. 참고용.",
+                 bg="#f4f4f4", fg="#555", wraplength=820, justify="left"), -3).pack(anchor="w", pady=(2, 6))
+    b_fr, b_text = make_text(bpage)
+    b_fr.pack(fill="both", expand=True)
+    brief_cache = {"data": None}
+
+    def render_brief():
+        b = brief_cache["data"]
+        if not b:
+            set_text(b_text, [("오른쪽 위 '새로 가져오기'를 누르면 시황을 가져옵니다.\n", "n")])
+            do_brief()
+            return
+        parts = [("지수\n", "h")]
+        for i in b.get("indices", []):
+            tag = "up" if i["change_pct"] > 0 else "down" if i["change_pct"] < 0 else "n"
+            parts += [(f"  {i['name']}  ", "b"), (f"{i['price']:,.2f}  ", "n"), (f"{i['change_pct']:+.2f}%\n", tag)]
+        if b.get("market"):
+            parts.append(("\n환율·원자재\n", "h"))
+            for m in b["market"]:
+                label = "달러/원" if m["name"] == "미국 USD" else m["name"]
+                tag = "up" if m["direction"] == "상승" else "down" if m["direction"] == "하락" else "n"
+                sign = "+" if m["direction"] == "상승" else "-" if m["direction"] == "하락" else ""
+                parts += [(f"  {label}  ", "b"), (f"{m['value']:,.2f}  ", "n"), (f"({sign}{m['change']:,.2f})\n", tag)]
+        if b.get("headlines"):
+            parts.append(("\n주요 뉴스\n", "h"))
+            for h in b["headlines"]:
+                parts += [(f"  • {h['title']}", "n"), (f"  ({h['source']})\n", "s")]
+        set_text(b_text, parts)
+
+    def do_brief():
+        bbtn.config(state="disabled")
+        bmsg.config(text="가져오는 중…")
+
+        def work():
+            try:
+                brief_cache["data"] = MK.morning_brief()
+                root.after(0, lambda: (bmsg.config(text=f"{dt.datetime.now():%H:%M} 기준"), render_brief()))
+            except Exception as e:  # noqa: BLE001
+                root.after(0, lambda: bmsg.config(text=f"실패: {str(e)[:60]}"))
+            finally:
+                root.after(0, lambda: bbtn.config(state="normal"))
+        threading.Thread(target=work, daemon=True).start()
+
+    refreshers["brief"] = render_brief
+
     # ================= 오늘 알림 =================
     apage = tk.Frame(body, bg="#f4f4f4")
     pages["alerts"] = apage
@@ -653,7 +748,8 @@ def run_gui() -> None:
     hparts.append((F.COMMON_FILTER_NOTE + "\n\n", "s"))
     hparts.append(("사용법\n", "h"))
     hparts.append(("• 홈: 봇 켜기/종료. '● 실행 중'이면 정상. 창은 닫지 말고 작게 두세요.\n"
-                   "• 검색 결과: 위 버튼으로 검색식을 고르면 결과가 나옵니다. '지금 검색'은 1~3분 걸립니다. 장 마감 후 15:45에 자동으로도 돌아갑니다.\n"
+                   "• 검색 결과: 위 버튼으로 검색식을 고르면 결과가 나옵니다. 버튼 숫자는 '새로 뜬 종목/전체'. 최근 20일 안에 같은 검색식에 떴던 종목은 아래로 접습니다. '겹침'은 여러 검색식에 같이 걸린 종목.\n"
+                   "• 오늘 시황: 간밤 미국 지수·환율·유가와 주요 뉴스 제목.\n"
                    "• 감시 종목: 종목 이름을 넣고 '추가'. 장중에 거래량이 터지면 홈·오늘 알림·텔레그램에 뜹니다.\n"
 
                    "• 글씨가 작으면 왼쪽 아래 '크게'를 누르세요.\n", "n"))
@@ -674,7 +770,7 @@ def run_gui() -> None:
         root.after(200, bot.start)
     if "--smoke" in sys.argv:  # 테스트용: 모든 페이지를 그려보고 내용 요약 출력 후 종료
         def smoke():
-            for name in ("home", "results", "watch", "alerts", "help"):
+            for name in ("home", "results", "brief", "watch", "alerts", "help"):
                 show(name)
                 root.update()
                 print(f"[{name}] ok")

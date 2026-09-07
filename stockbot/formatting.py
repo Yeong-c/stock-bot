@@ -4,16 +4,16 @@ from __future__ import annotations
 TG_LIMIT = 3800
 
 SCREENER_HELP = {
-    "minute_burst": "1️⃣ 분봉 거래폭발 (장중 실시간)\n감시 종목의 1분 거래량이 평소(1년치 1분봉 중간 40% 평균)의 3배 이상 터지면 즉시 알림.",
+    "minute_burst": "1️⃣ 분봉 거래폭발 (장중 실시간)\n감시 종목의 1분 거래량이 평소(1년치 1분봉 거래량 상위 60% 평균)의 6배 이상 터지면 즉시 알림.",
     "bottom_accum": "2️⃣ 바닥 매집\n고점이 2년 이상 전이고 고점 대비 60% 이상 빠진 종목이 월봉 2달 연속 양봉.",
     "crash_volume": "3️⃣ 급락 수급\n30일 내 고점 대비 50% 이상 빠진 종목에 3일 평균의 2.5배 거래량.",
     "surge_pullback": "4️⃣ 급등 눌림\n20일 내 27% 이상 급등했던 종목이 고점 대비 30% 이상 눌림.",
     "aligned_breakout": "5️⃣ 정배열 돌파\n20·60·120·240일선 정배열 + 3일 평균의 3배 거래량 + 양봉 +4~15%.",
     "aligned_pullback": "5️⃣-b 정배열 깊은눌림\n정배열 유지 중 120일 고점 대비 30% 이상 눌린 종목.",
-    "daily_burst": "6️⃣ 일봉 거래폭발\n3년치 일봉 거래량 중간 40% 평균의 3배 이상 거래량.",
+    "daily_burst": "6️⃣ 일봉 거래폭발\n3년치 일봉 거래량 상위 60% 평균의 6배 이상 거래량.",
 }
 
-COMMON_FILTER_NOTE = "공통: 시총 1,000억 미만·환기종목·스팩 제외. 신호일 뿐 매매 판단은 직접."
+COMMON_FILTER_NOTE = "공통 제외: 시총 1,000억 미만·환기·관리·투자위험·거래정지·정리매매·우선주·스팩. 신호일 뿐 매매 판단은 직접."
 
 
 def fmt_won(v: float) -> str:
@@ -60,24 +60,49 @@ def screener_label(key: str) -> str:
     return dict(SCREENER_ORDER).get(key, key)
 
 
-def format_one_screener(out: dict, key: str, max_per: int = 30, note: str = "") -> list[str]:
-    """검색식 하나의 결과만 메시지로."""
+def split_new_seen(sigs: list[dict]) -> tuple[list[dict], list[dict]]:
+    new = [s for s in sigs if not s.get("seen")]
+    seen = [s for s in sigs if s.get("seen")]
+    return new, seen
+
+
+def format_one_screener(out: dict, key: str, max_per: int = 30, note: str = "", repeat_days: int = 20) -> list[str]:
+    """검색식 하나의 결과. 최근 N일 안에 같은 검색식에 떴던 종목은 뒤로 접어 '새로 뜬 종목' 위주로."""
     r = out.get("results", {}).get(key)
     date = out.get("date", "")
     if r is None:
         return [f"{screener_label(key)} 은 꺼져 있거나 결과가 없습니다."]
-    head = f"🔎 [{screener_label(key)}] {date} 기준 · {r['count']}종목"
+    sigs = r.get("signals", [])
+    new, seen = split_new_seen(sigs)
+    head = f"🔎 [{screener_label(key)}] {date} 기준 · 새로 뜬 {len(new)}종목 (전체 {r['count']})"
     if note:
         head += "\n" + note
-    sigs = r.get("signals", [])
     if not sigs:
         return [head + "\n해당 종목 없음\n\n" + COMMON_FILTER_NOTE]
     lines = [head]
-    for i, sg in enumerate(sigs[:max_per], 1):
+    for i, sg in enumerate(new[:max_per], 1):
         lines.append(format_signal(sg, i))
-    if r["count"] > max_per:
-        lines.append(f"… 외 {r['count'] - max_per}종목 (상위 {max_per}개만 표시)")
+    if len(new) > max_per:
+        lines.append(f"… 새로 뜬 종목 외 {len(new) - max_per}개 (상위 {max_per}개만 표시)")
+    if seen:
+        names = ", ".join(f"{sg['name']}({sg['seen'][-1][5:]})" for sg in seen[:15])
+        more = f" 외 {len(seen) - 15}개" if len(seen) > 15 else ""
+        lines.append(f"↩ 최근 {repeat_days}일 안에 이미 떴던 종목 {len(seen)}개 (괄호는 마지막 뜬 날): {names}{more}")
     lines.append(COMMON_FILTER_NOTE)
+    return split_message("\n\n".join(lines))
+
+
+def format_overlap(out: dict, max_n: int = 20) -> list[str]:
+    """여러 검색식에 같이 걸린 종목 (교집합 점수)."""
+    rows = out.get("overlap", [])
+    head = f"🔗 여러 검색식에 같이 걸린 종목 ({out.get('date')} 기준) · {len(rows)}종목\n점수 = 걸린 검색식 수 + 상위권 가산 (검색식 3개면 3점 이상)"
+    if not rows:
+        return [head + "\n\n오늘은 두 개 이상 겹친 종목이 없습니다."]
+    lines = [head]
+    for i, c in enumerate(rows[:max_n], 1):
+        lines.append(f"{i}. {c['name']} ({c['code']}) {fmt_won(c['price'])} {fmt_pct(c['change_pct'])}  {c['score']}점\n   └ {len(c['titles'])}개: {', '.join(c['titles'])}")
+    if len(rows) > max_n:
+        lines.append(f"… 외 {len(rows) - max_n}종목")
     return split_message("\n\n".join(lines))
 
 
@@ -92,16 +117,12 @@ def format_daily_results(out: dict, max_per: int = 30, header_note: str = "") ->
         intro += "\n" + header_note
     empty: list[str] = []
     for key, r in out.get("results", {}).items():
-        sigs = r.get("signals", [])
-        if not sigs:
+        if not r.get("signals"):
             empty.append(r["title"])
             continue
-        lines = [f"🔎 [{r['title']}] {r['count']}종목"]
-        for i, s in enumerate(sigs[:max_per], 1):
-            lines.append(format_signal(s, i))
-        if r["count"] > max_per:
-            lines.append(f"… 외 {r['count'] - max_per}종목 (상위 {max_per}개만 표시)")
-        msgs.extend(split_message("\n\n".join(lines)))
+        msgs.extend(format_one_screener(out, key, max_per))
+    if out.get("overlap"):
+        msgs.extend(format_overlap(out))
     if empty:
         intro += "\n해당 없음: " + ", ".join(empty)
     intro += "\n\n" + COMMON_FILTER_NOTE
@@ -141,6 +162,9 @@ def help_text() -> str:
              "🔥 감시종목 — 분봉 거래폭발을 감시 중인 종목 보기",
              "➕ 감시 추가 / ➖ 감시 삭제 — 종목 이름을 보내면 됩니다 (예: 삼성전자)",
              "🔎 지금 검색 — 검색식을 하나 골라 지금 바로 실행 (10분 안에는 재사용, 아니면 1~3분)",
+             "🔗 겹침 종목 — 여러 검색식에 같이 걸린 종목 (검색식 수 기준 점수)",
+             "📰 오늘 시황 — 간밤 미국 지수·환율·유가와 주요 뉴스 제목 (아침 08:30 자동, 참고용)",
+             "결과에서 최근 20일 안에 같은 검색식에 이미 떴던 종목은 뒤로 접고 '새로 뜬 종목'을 먼저 보여줍니다.",
              "",
              "📌 검색식 설명"]
     parts.extend(SCREENER_HELP.values())

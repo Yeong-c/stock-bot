@@ -17,6 +17,7 @@ from .calendar_kr import KST, in_market_hours, is_trading_day, now_kst, parse_hh
 from .config import kiwoom_configured
 from .data.kiwoom import KiwoomClient
 from .data.universe import fetch_listing, load_latest_listing, resolve_name
+from .data import market
 from .screeners.minute import MinuteMonitor
 from .screeners.runner import load_latest_result, run_daily_scan
 from . import updater
@@ -30,10 +31,12 @@ BTN_ADD = "➕ 감시 추가"
 BTN_DEL = "➖ 감시 삭제"
 BTN_SCAN = "🔎 지금 검색"
 BTN_HELP = "❓ 도움말"
+BTN_OVERLAP = "🔗 겹침 종목"
+BTN_BRIEF = "📰 오늘 시황"
 # python-telegram-bot v22: run_daily 의 days 는 0=일요일 … 6=토요일 → 월~금 = (1,2,3,4,5)
 WEEKDAYS = (1, 2, 3, 4, 5)
 KEYBOARD = ReplyKeyboardMarkup(
-    [[BTN_RESULTS, BTN_WATCH], [BTN_ADD, BTN_DEL], [BTN_SCAN, BTN_HELP]],
+    [[BTN_RESULTS, BTN_WATCH], [BTN_OVERLAP, BTN_BRIEF], [BTN_ADD, BTN_DEL], [BTN_SCAN, BTN_HELP]],
     resize_keyboard=True, is_persistent=True,
 )
 
@@ -270,6 +273,22 @@ class StockBot:
         elif text == BTN_SCAN:
             self.state.set_pending(cid, None)
             await self.screener_menu(update, "scan")
+        elif text == BTN_OVERLAP:
+            self.state.set_pending(cid, None)
+            out = load_latest_result()
+            if not out:
+                await self.reply(update, "아직 검색 결과가 없습니다. '🔎 지금 검색'을 눌러주세요.")
+            else:
+                for m in F.format_overlap(out):
+                    await self.reply(update, m)
+        elif text == BTN_BRIEF:
+            self.state.set_pending(cid, None)
+            await self.reply(update, "시황을 가져오는 중…")
+            try:
+                b = await asyncio.to_thread(market.morning_brief)
+                await self.reply(update, market.format_brief(b))
+            except Exception as e:  # noqa: BLE001
+                await self.reply(update, f"시황 조회 실패: {str(e)[:100]}")
         elif pending == "add":
             await self.handle_add(update, text)
         elif pending == "del":
@@ -411,6 +430,8 @@ class StockBot:
                 r = out.get("results", {}).get(key)
                 cnt = f" ({r['count']})" if r else ""
             rows.append([InlineKeyboardButton(label + cnt, callback_data=f"{mode}:{key}")])
+        if mode == "res" and out is not None and out.get("overlap"):
+            rows.append([InlineKeyboardButton(f"🔗 겹침 종목 ({len(out['overlap'])})", callback_data="res:overlap")])
         rows.append([InlineKeyboardButton("📚 전체 한 번에", callback_data=f"{mode}:all")])
         title = (f"📋 {out.get('date')} 기준 결과입니다. 볼 검색식을 고르세요." if mode == "res"
                  else "🔎 지금 실행할 검색식을 고르세요. (1~3분 걸릴 수 있음)")
@@ -449,8 +470,10 @@ class StockBot:
         if in_market_hours(self.cfg):
             note = "⏳ 장중 기준: 오늘 거래량·종가는 아직 진행 중인 값입니다."
         max_per = int(self.cfg["output"].get("max_per_screener", 30))
+        rd = int(self.cfg["output"].get("repeat_days", 20))
         msgs = (F.format_daily_results(out, max_per, note) if key == "all"
-                else F.format_one_screener(out, key, max_per, note))
+                else F.format_overlap(out) if key == "overlap"
+                else F.format_one_screener(out, key, max_per, note, rd))
         for m in msgs:
             await self.app.bot.send_message(chat_id, m, reply_markup=KEYBOARD)
         if key == "all":
@@ -541,6 +564,11 @@ class StockBot:
         if bad:
             txt += f"\n⚠️ 기준값 없음: {', '.join(bad)}"
         await self.send_all(txt)
+        try:
+            b = await asyncio.to_thread(market.morning_brief)
+            await self.send_all(market.format_brief(b))
+        except Exception as e:  # noqa: BLE001
+            log.warning("아침 시황 실패: %s", e)
 
     async def job_daily_scan(self, ctx: ContextTypes.DEFAULT_TYPE):
         if not is_trading_day(self.cfg):

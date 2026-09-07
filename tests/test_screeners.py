@@ -25,6 +25,14 @@ def make_df(closes, volumes=None, start="2021-01-04"):
     return pd.DataFrame({"date": dates, "open": opens, "high": highs, "low": lows, "close": closes, "volume": vols})
 
 
+def test_top_mean():
+    from stockbot.screeners.common import top_mean, volume_baseline
+    v = np.arange(1, 11)  # 1..10 → 상위 60% = 10,9,8,7,6,5 평균 7.5
+    assert abs(top_mean(v, 60) - 7.5) < 1e-9
+    assert abs(volume_baseline(v, {"top_pct": 60}) - 7.5) < 1e-9
+    assert abs(volume_baseline(v, {"trim_pct": 30}) - trimmed_mean(v, 30)) < 1e-9
+
+
 def test_trimmed_mean_middle_band():
     v = np.arange(1, 101)  # 1..100
     m = trimmed_mean(v, 30)  # 31..70 평균 = 50.5
@@ -89,10 +97,12 @@ def test_aligned_breakout_and_pullback():
 def test_daily_burst():
     n = 800
     vols = np.random.default_rng(0).integers(80_000, 120_000, n).astype(float)
-    vols[-1] = 400_000
+    vols[-1] = 900_000  # 상위 60% 평균(≈11만)의 6배 이상
     df = make_df(np.full(n, 5_000.0), vols)
     s = D.run_daily_burst(df, ROW, DEFAULTS["screeners"]["daily_burst"], df["date"].iloc[-1].date())
-    assert s is not None and s.score > 3
+    assert s is not None and s.score > 6
+    vols[-1] = 400_000  # 6배 미만 → 탈락
+    assert D.run_daily_burst(make_df(np.full(n, 5_000.0), vols), ROW, DEFAULTS["screeners"]["daily_burst"], df["date"].iloc[-1].date()) is None
 
 
 def test_minute_monitor_poll(monkeypatch, tmp_path):
@@ -104,12 +114,28 @@ def test_minute_monitor_poll(monkeypatch, tmp_path):
     st.set_baseline("005930", {"mean": 1000.0, "bars": 100, "days": 5, "source": "test", "built": "x"})
     cfg = {"schedule": DEFAULTS["schedule"], "screeners": DEFAULTS["screeners"]}
     mon = M.MinuteMonitor(cfg, st, None)
-    seq = iter([100_000, 104_000])  # 1분 4,000주 = 기준의 4배
+    seq = iter([100_000, 107_000])  # 1분 7,000주 = 기준의 7배
     monkeypatch.setattr(M.naver, "fetch_realtime", lambda codes: {
         "005930": {"name": "삼성전자", "price": 70000, "change_pct": 1.0, "acc_volume": next(seq),
                    "open": 69000, "high": 0, "low": 0, "prev_close": 0, "status": "OPEN"}})
     t0 = dt.datetime(2026, 9, 3, 10, 0, tzinfo=M.now_kst().tzinfo)
     assert mon.poll(t0) == []
     alerts = mon.poll(t0 + dt.timedelta(minutes=1))
-    assert len(alerts) == 1 and alerts[0]["multiple"] == 4.0
+    assert len(alerts) == 1 and alerts[0]["multiple"] == 7.0
     assert st.minute_alerts("2026-09-03")
+
+
+def test_repeats_and_overlap(tmp_path, monkeypatch):
+    import json
+    from stockbot.screeners import runner as R
+    monkeypatch.setattr(R, "RESULT_DIR", tmp_path)
+    sig = lambda code, name: {"code": code, "name": name, "price": 100.0, "change_pct": 1.0, "lines": []}
+    past = {"date": "2026-09-01", "results": {"bottom_accum": {"title": "바닥 매집", "signals": [sig("A", "에이")]}}}
+    (tmp_path / "2026-09-01.json").write_text(json.dumps(past), encoding="utf-8")
+    results = {"bottom_accum": {"title": "바닥 매집", "count": 2, "signals": [sig("A", "에이"), sig("B", "비")]},
+               "daily_burst": {"title": "일봉 거래폭발", "count": 1, "signals": [sig("A", "에이")]}}
+    R.annotate_repeats(results, dt.date(2026, 9, 7), 20)
+    a, b = results["bottom_accum"]["signals"]
+    assert a["seen"] == ["2026-09-01"] and b["seen"] == [] and results["bottom_accum"]["count_new"] == 1
+    ov = R.overlap_list(results)
+    assert len(ov) == 1 and ov[0]["code"] == "A" and ov[0]["titles"] == ["바닥 매집", "일봉 거래폭발"]

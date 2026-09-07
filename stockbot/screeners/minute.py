@@ -1,8 +1,8 @@
 """1. 분봉 거래폭발 — 장중 실시간 감시.
 
-기준값: 감시 종목별 1분봉 거래량(최대 1년치)을 정렬해 상·하위 30% 제외한
-        중간 40% 구간의 평균. 키움 API 연결 시 최대 1년, 미연결 시 네이버 최근 7거래일.
-신호  : 방금 지난 1분 거래량이 기준값의 3배 이상.
+기준값: 감시 종목별 1분봉 거래량(최대 1년치)을 큰 순으로 정렬해 상위 60% 의 평균.
+        키움 API 연결 시 최대 1년, 미연결 시 네이버 7거래일치를 매일 누적.
+신호  : 방금 지난 1분 거래량이 기준값의 6배 이상.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import pandas as pd
 from ..calendar_kr import minutes_since_open, now_kst
 from ..data import naver
 from ..data.store import load_minute_history, save_minute_history
-from .common import trimmed_mean
+from .common import volume_baseline
 
 log = logging.getLogger("stockbot.minute")
 
@@ -81,7 +81,7 @@ class MinuteMonitor:
                     "built": today.isoformat()}
             self.state.set_baseline(code, info)
             return info
-        mean = trimmed_mean(bars["volume"].values, float(self.p.get("trim_pct", 30)))
+        mean = volume_baseline(bars["volume"].values, self.p)
         info = {
             "mean": round(mean, 1),
             "bars": int(len(bars)),
@@ -135,7 +135,7 @@ class MinuteMonitor:
             if not base or float(base.get("mean", 0)) <= 0:
                 continue
             mult = vpm / float(base["mean"])
-            if mult < float(self.p.get("multiple", 3.0)):
+            if mult < float(self.p.get("multiple", 6.0)):
                 continue
             if since_open < float(self.p.get("ignore_first_minutes", 5)):
                 continue

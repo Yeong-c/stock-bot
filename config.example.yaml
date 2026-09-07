@@ -31,8 +31,11 @@ schedule:
 filters:
   min_marcap_krw: 100000000000     # 시가총액 1,000억 미만 제외
   exclude_hwangi: true             # 투자주의환기종목 제외
+  exclude_admin: true              # 관리종목 제외
+  exclude_risk: true               # 투자위험종목 제외 (주의·경고는 포함)
+  exclude_halt: true               # 거래정지·정리매매 종목 제외
   exclude_spac: true               # 스팩 제외
-  exclude_preferred: false         # 우선주 제외 여부
+  exclude_preferred: true          # 우선주 제외
   markets: ["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"]
 
 update:
@@ -41,13 +44,14 @@ update:
   branch: "main"
 
 output:
+  repeat_days: 20                  # 같은 검색식에 최근 N일 안에 이미 떴던 종목은 '이전에 뜬 종목'으로 따로 표시
   max_per_screener: 20             # 텔레그램 메시지에 표시할 검색식당 종목 수 (데스크톱 창은 전부 표시)
 
 screeners:
   minute_burst:                    # 1. 분봉 거래폭발 (장중 실시간)
     enabled: true
-    multiple: 3.0                  # 기준 평균의 몇 배
-    trim_pct: 30                   # 상·하위 30% 제외 → 중간 40% 평균
+    multiple: 6.0                  # 기준 평균의 몇 배 (아버지: 6배)
+    top_pct: 60                    # 1분봉 거래량 상위 60% 평균을 기준으로 (예전 방식: 이 줄 지우고 trim_pct: 30)
     lookback_days: 365             # 기준 기간(달력일). 키움 연결 시 최대 1년
     cooldown_minutes: 10           # 같은 종목 재알림 간격
     ignore_first_minutes: 5        # 장 시작 직후 N분은 알림 제외 (시초가 거래 폭주 방지)
@@ -80,8 +84,8 @@ screeners:
     high_lookback_days: 120
   daily_burst:                     # 6. 일봉 거래폭발
     enabled: true
-    multiple: 3.0
-    trim_pct: 30
+    multiple: 6.0                  # 3년 일봉 거래량 상위 60% 평균의 6배
+    top_pct: 60
     lookback_years: 3
 
 # 1번 분봉 감시 초기 종목 (텔레그램에서 '감시 추가/삭제'로 언제든 바꿀 수 있음)

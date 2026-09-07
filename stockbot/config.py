@@ -26,14 +26,17 @@ DEFAULTS: dict[str, Any] = {
     "filters": {
         "min_marcap_krw": 100_000_000_000,
         "exclude_hwangi": True,
+        "exclude_admin": True,
+        "exclude_risk": True,
+        "exclude_halt": True,
         "exclude_spac": True,
-        "exclude_preferred": False,
+        "exclude_preferred": True,
         "markets": ["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"],
     },
-    "output": {"max_per_screener": 20},
+    "output": {"max_per_screener": 20, "repeat_days": 20},
     "screeners": {
         "minute_burst": {
-            "enabled": True, "multiple": 3.0, "trim_pct": 30, "lookback_days": 365,
+            "enabled": True, "multiple": 6.0, "top_pct": 60, "lookback_days": 365,
             "cooldown_minutes": 10, "ignore_first_minutes": 5,
         },
         "bottom_accum": {
@@ -48,7 +51,7 @@ DEFAULTS: dict[str, Any] = {
             "enabled": True, "vol_multiple": 3.0, "vol_avg_days": 3, "min_change_pct": 4, "max_change_pct": 15,
         },
         "aligned_pullback": {"enabled": True, "drop_from_high_pct": 30, "high_lookback_days": 120},
-        "daily_burst": {"enabled": True, "multiple": 3.0, "trim_pct": 30, "lookback_years": 3},
+        "daily_burst": {"enabled": True, "multiple": 6.0, "top_pct": 60, "lookback_years": 3},
     },
     "update": {"repo": "", "branch": "main"},
     "watchlist": [],

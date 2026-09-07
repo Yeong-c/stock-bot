@@ -31,40 +31,90 @@ def fetch_listing() -> pd.DataFrame:
 
 _ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
 _TITLE_RE = re.compile(r"title='([^']*)'|title=\"([^\"]*)\"")
+_NAME_AFTER_IMG_RE = re.compile(r"alt='[^']*'>\s*([^<]+?)\s*</a>")
+_KIND_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://kind.krx.co.kr/"}
+
+
+def _kind_post(path: str, data: dict) -> str:
+    """KIND 목록 POST (가끔 느려 재시도). 인코딩은 페이지마다 달라 utf-8 → cp949 순으로 시도."""
+    last: Exception | None = None
+    for _ in range(3):
+        try:
+            r = requests.post("https://kind.krx.co.kr" + path, data=data, headers=_KIND_HEADERS, timeout=60)
+            r.raise_for_status()
+            try:
+                return r.content.decode("utf-8")
+            except UnicodeDecodeError:
+                return r.content.decode("cp949", errors="replace")
+        except Exception as e:  # noqa: BLE001
+            last = e
+    raise RuntimeError(f"KIND 조회 실패 {path}: {last}")
+
+
+def _kind_names(txt: str) -> set[str]:
+    names: set[str] = set()
+    for row in _ROW_RE.findall(txt):
+        if "legend" not in row:  # 시장구분 아이콘이 있는 행만 (헤더 제외)
+            continue
+        m = _TITLE_RE.search(row)
+        nm = html.unescape((m.group(1) or m.group(2) or "").strip()) if m else ""
+        if not nm:
+            m2 = _NAME_AFTER_IMG_RE.search(row)
+            nm = html.unescape(m2.group(1).strip()) if m2 else ""
+        if nm:
+            names.add(nm)
+    return names
 
 
 def fetch_hwangi_names() -> set[str]:
-    """KIND 투자주의환기종목 지정현황 → 종목명 집합 (코스닥 전용 지정)."""
-    last: Exception | None = None
-    r = None
-    for attempt in range(3):  # KIND 는 가끔 느리다 → 재시도
-        try:
-            r = requests.post(
-                "https://kind.krx.co.kr/investwarn/hwangiissue.do",
-                data={"method": "searchHwangiIssueSub", "forward": "hwangiissue_sub", "currentPageSize": "3000",
-                      "pageIndex": "1", "orderMode": "", "orderStat": "", "searchMode": "", "searchCodeType": "",
-                      "searchCorpName": "", "repIsuSrtCd": ""},
-                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://kind.krx.co.kr/"},
-                timeout=60,
-            )
-            r.raise_for_status()
-            break
-        except Exception as e:  # noqa: BLE001
-            last = e
-            r = None
-    if r is None:
-        raise RuntimeError(f"KIND 환기종목 조회 실패: {last}")
-    txt = r.content.decode("cp949", errors="replace")
+    """KIND 투자주의환기종목 → 종목명 집합."""
+    return _kind_names(_kind_post("/investwarn/hwangiissue.do", {
+        "method": "searchHwangiIssueSub", "forward": "hwangiissue_sub", "currentPageSize": "3000", "pageIndex": "1"}))
+
+
+def fetch_admin_names() -> set[str]:
+    """KIND 관리종목 → 종목명 집합."""
+    return _kind_names(_kind_post("/investwarn/adminissue.do", {
+        "method": "searchAdminIssueSub", "forward": "adminissue_sub", "currentPageSize": "3000", "pageIndex": "1"}))
+
+
+def fetch_delisting_names(months: int = 3) -> set[str]:
+    """KIND 상장폐지 결정 종목(정리매매 대상) 최근 N개월 → 종목명 집합."""
+    end = dt.date.today()
+    start = end - dt.timedelta(days=31 * months)
+    txt = _kind_post("/investwarn/delcompany.do", {
+        "method": "searchDelCompanySub", "forward": "delcompany_sub", "currentPageSize": "3000", "pageIndex": "1",
+        "startDate": start.strftime("%Y-%m-%d"), "endDate": end.strftime("%Y-%m-%d")})
     names: set[str] = set()
     for row in _ROW_RE.findall(txt):
-        if "companysummary_open" not in row:
-            continue
-        m = _TITLE_RE.search(row)
-        if m:
-            nm = html.unescape((m.group(1) or m.group(2) or "").strip())
-            if nm:
-                names.add(nm)
+        cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+        if len(cells) >= 2 and cells[1]:
+            names.add(cells[1])
     return names
+
+
+def fetch_naver_alert_codes(kind: str = "risk") -> set[str]:
+    """네이버 투자경보 목록(caution/warning/risk) → 종목코드 집합. 투자위험 제외에 사용."""
+    r = requests.get("https://finance.naver.com/sise/investment_alert.naver", params={"type": kind},
+                     headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+    r.raise_for_status()
+    txt = r.content.decode("cp949", errors="replace")
+    return set(re.findall(r'/item/main\.naver\?code=(\d{6})', txt))
+
+
+def _cached_set(name: str, fetch, meta: dict) -> set:
+    """수집 실패 시 마지막 성공본 사용."""
+    p = UNIVERSE_DIR / f"{name}_latest.csv"
+    try:
+        vals = set(fetch())
+        pd.Series(sorted(vals)).to_csv(p, index=False, header=False, encoding="utf-8-sig")
+        meta[f"{name}_ok"] = True
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s 수집 실패, 캐시 사용: %s", name, e)
+        meta[f"{name}_ok"] = False
+        vals = set(pd.read_csv(p, header=None, encoding="utf-8-sig", dtype=str)[0]) if p.exists() else set()
+    meta[f"n_{name}"] = len(vals)
+    return vals
 
 
 def _norm_name(s: str) -> str:
@@ -75,7 +125,7 @@ def build_universe(cfg: dict) -> tuple[pd.DataFrame, dict]:
     """필터 적용된 유니버스와 메타정보. 실패 시 가장 최근 캐시 사용."""
     UNIVERSE_DIR.mkdir(parents=True, exist_ok=True)
     today = dt.date.today().strftime("%Y%m%d")
-    meta: dict = {"date": today, "hwangi_ok": False, "n_hwangi": 0}
+    meta: dict = {"date": today}
 
     try:
         listing = fetch_listing()
@@ -89,32 +139,36 @@ def build_universe(cfg: dict) -> tuple[pd.DataFrame, dict]:
         listing["code"] = listing["code"].str.zfill(6)
         meta["listing_cached"] = files[-1].name
 
-    hwangi: set[str] = set()
-    if cfg["filters"].get("exclude_hwangi", True):
-        try:
-            hwangi = fetch_hwangi_names()
-            meta["hwangi_ok"] = True
-            pd.Series(sorted(hwangi)).to_csv(UNIVERSE_DIR / "hwangi_latest.csv", index=False, header=False,
-                                              encoding="utf-8-sig")
-        except Exception as e:  # noqa: BLE001
-            log.warning("환기종목 수집 실패, 캐시 사용: %s", e)
-            p = UNIVERSE_DIR / "hwangi_latest.csv"
-            if p.exists():
-                hwangi = set(pd.read_csv(p, header=None, encoding="utf-8-sig")[0].astype(str))
-    meta["n_hwangi"] = len(hwangi)
-    hw_norm = {_norm_name(x) for x in hwangi}
-
     f = cfg["filters"]
+    hwangi = _cached_set("hwangi", fetch_hwangi_names, meta) if f.get("exclude_hwangi", True) else set()
+    admin = _cached_set("admin", fetch_admin_names, meta) if f.get("exclude_admin", True) else set()
+    delist = _cached_set("delist", fetch_delisting_names, meta) if f.get("exclude_halt", True) else set()
+    risk = _cached_set("risk", lambda: fetch_naver_alert_codes("risk"), meta) if f.get("exclude_risk", True) else set()
+    meta["hwangi_ok"] = meta.get("hwangi_ok", True)  # 하위 호환 (메시지 표시용)
+
+    hw_norm = {_norm_name(x) for x in hwangi}
+    ad_norm = {_norm_name(x) for x in admin}
+    de_norm = {_norm_name(x) for x in delist}
     df = listing.copy()
-    df["hwangi"] = df["name"].map(lambda n: _norm_name(n) in hw_norm)
+    nn = df["name"].map(_norm_name)
+    df["hwangi"] = nn.isin(hw_norm)
+    df["admin"] = nn.isin(ad_norm)
+    df["delist"] = nn.isin(de_norm)
+    df["risk"] = df["code"].isin(risk)
     meta["n_listing"] = len(df)
     df = df[df["market"].isin(f.get("markets", ["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"]))]
     df = df[df["marcap"] >= float(f.get("min_marcap_krw", 1e11))]
     if f.get("exclude_hwangi", True):
         df = df[~df["hwangi"]]
+    if f.get("exclude_admin", True):
+        df = df[~df["admin"]]
+    if f.get("exclude_halt", True):
+        df = df[~df["delist"]]
+    if f.get("exclude_risk", True):
+        df = df[~df["risk"]]
     if f.get("exclude_spac", True):
         df = df[~df["name"].str.contains("스팩", na=False)]
-    if f.get("exclude_preferred", False):
+    if f.get("exclude_preferred", True):
         df = df[~df["name"].str.match(r".*(우|우B|우C|1우|2우|3우)$", na=False)]
     df = df.reset_index(drop=True)
     meta["n_universe"] = len(df)

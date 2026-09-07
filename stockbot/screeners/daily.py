@@ -12,7 +12,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from .common import Signal, last_change_pct, month_label, trimmed_mean
+from .common import Signal, last_change_pct, month_label, volume_baseline
 
 
 def _base(df: pd.DataFrame, row, key: str, title: str, score: float, lines: list[str], extra=None) -> Signal:
@@ -171,17 +171,18 @@ def run_daily_burst(df: pd.DataFrame, row, p: dict, ref_date: dt.date) -> Signal
     hist = df[df["date"] >= cutoff]
     if len(hist) < 120:
         return None
-    base = trimmed_mean(hist["volume"].values[:-1], float(p.get("trim_pct", 30)))
+    base = volume_baseline(hist["volume"].values[:-1], p)
     if base <= 0:
         return None
     vol = float(df["volume"].iloc[-1])
     mult = vol / base
-    if mult < float(p.get("multiple", 3.0)):
+    if mult < float(p.get("multiple", 6.0)):
         return None
     chg = last_change_pct(df)
     candle = "양봉" if float(df["close"].iloc[-1]) > float(df["open"].iloc[-1]) else "음봉"
+    band = f"상위 {p.get('top_pct'):.0f}%" if p.get("top_pct") else "중간구간"
     lines = [
-        f"거래량 {vol:,.0f}주 = {years:.0f}년 일봉 중간구간 평균 {base:,.0f}주의 {mult:.1f}배",
+        f"거래량 {vol:,.0f}주 = {years:.0f}년 일봉 {band} 평균 {base:,.0f}주의 {mult:.1f}배",
         f"{candle} ({chg:+.1f}%)",
     ]
     return _base(df, row, "daily_burst", "일봉 거래폭발", mult, lines)

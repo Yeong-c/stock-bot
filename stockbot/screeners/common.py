@@ -36,6 +36,25 @@ def trimmed_mean(values, trim_pct: float) -> float:
     return float(core.mean())
 
 
+def top_mean(values, top_pct: float) -> float:
+    """거래량을 큰 순으로 정렬해 상위 top_pct% 만 평균 (아버지 요청: '상위 60% 평균')."""
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    n = len(v)
+    if n == 0:
+        return 0.0
+    v = np.sort(v)[::-1]
+    k = max(1, int(round(n * top_pct / 100.0)))
+    return float(v[:k].mean())
+
+
+def volume_baseline(values, p: dict) -> float:
+    """설정에 top_pct 가 있으면 상위 N% 평균, 없으면 상·하위 trim_pct 제외 평균."""
+    if p.get("top_pct"):
+        return top_mean(values, float(p["top_pct"]))
+    return trimmed_mean(values, float(p.get("trim_pct", 30)))
+
+
 def last_change_pct(df: pd.DataFrame) -> float:
     if len(df) < 2:
         return 0.0
