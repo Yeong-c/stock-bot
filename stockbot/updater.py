@@ -16,6 +16,7 @@ import logging
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -59,10 +60,39 @@ def urls(cfg: dict) -> tuple[str, str] | None:
             f"https://github.com/{repo}/archive/refs/heads/{branch}.zip")
 
 
+_HEADERS = {"User-Agent": "dad-stock-bot-updater", "Cache-Control": "no-cache", "Pragma": "no-cache"}
+
+
 def _fetch(url: str, timeout: int = 60) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "dad-stock-bot-updater", "Cache-Control": "no-cache"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    """requests(certifi 인증서 번들) 로 받는다. 윈도우 기본 SSL 저장소가 GitHub 다운로드 서버를 못 검증하는 문제 회피.
+    file:// (테스트) 는 urllib."""
+    if url.startswith("file:"):
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.read()
+    import requests
+    r = requests.get(url, headers=_HEADERS, timeout=timeout, allow_redirects=True)
+    r.raise_for_status()
+    return r.content
+
+
+def _latest_version(cfg: dict, version_url: str) -> str:
+    """GitHub API(캐시 없음) → 실패 시 raw 파일(캐시 우회 파라미터)."""
+    u = cfg.get("update", {}) or {}
+    repo = str(u.get("repo", "")).strip()
+    branch = str(u.get("branch", "main") or "main")
+    if not version_url.startswith("file:") and repo and not u.get("version_url"):
+        try:
+            import base64
+            import json as _json
+            data = _json.loads(_fetch(f"https://api.github.com/repos/{repo}/contents/VERSION?ref={branch}", timeout=20))
+            v = base64.b64decode(data["content"]).decode("utf-8").strip()
+            if v:
+                return v
+        except Exception as e:  # noqa: BLE001
+            log.debug("GitHub API 버전 확인 실패, raw 로 대체: %s", e)
+    sep = "&" if "?" in version_url else "?"
+    bust = "" if version_url.startswith("file:") else f"{sep}nocache={int(time.time())}"
+    return _fetch(version_url + bust, timeout=20).decode("utf-8").strip()
 
 
 def check(cfg: dict) -> dict:
@@ -72,7 +102,7 @@ def check(cfg: dict) -> dict:
     if u is None:
         return {"current": cur, "latest": None, "available": False, "error": "업데이트 주소(update.repo)가 설정되지 않았습니다"}
     try:
-        latest = _fetch(u[0], timeout=20).decode("utf-8").strip()
+        latest = _latest_version(cfg, u[0])
     except Exception as e:  # noqa: BLE001
         return {"current": cur, "latest": None, "available": False, "error": f"확인 실패: {e}"}
     return {"current": cur, "latest": latest, "available": is_newer(latest, cur), "error": None}
