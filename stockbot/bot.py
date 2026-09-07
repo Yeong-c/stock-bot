@@ -14,7 +14,7 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, Con
 
 from . import formatting as F
 from .calendar_kr import KST, in_market_hours, is_trading_day, now_kst, parse_hhmm
-from .config import kiwoom_configured
+from .config import ROOT, kiwoom_configured
 from .data.kiwoom import KiwoomClient
 from .data.universe import fetch_listing, load_latest_listing, resolve_name
 from .data import market
@@ -72,7 +72,19 @@ class StockBot:
             hit = self.listing[self.listing["code"] == code]
             if len(hit):
                 return str(hit["name"].iloc[0])
-        return code
+        return self._seed_names().get(code, code)
+
+    def _seed_names(self) -> dict[str, str]:
+        if not hasattr(self, "_seed_cache"):
+            self._seed_cache = {}
+            try:
+                for ln in (ROOT / "watchlist_seed.txt").read_text(encoding="utf-8").splitlines():
+                    code, _, memo = ln.partition("#")
+                    if len(code.strip()) == 6 and memo.strip():
+                        self._seed_cache[code.strip()] = memo.strip()
+            except OSError:
+                pass
+        return self._seed_cache
 
     def names(self, codes: list[str]) -> dict[str, str]:
         return {c: self.name_of(c) for c in codes}

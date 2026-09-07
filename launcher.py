@@ -158,13 +158,34 @@ def run_gui() -> None:
                 super().configure(**kw)
         configure = config
 
+    seed_names: dict[str, str] = {}
+    try:  # watchlist_seed.txt 의 '# 이름' 메모를 이름 대체용으로
+        for ln in (ROOT / "watchlist_seed.txt").read_text(encoding="utf-8").splitlines():
+            code, _, memo = ln.partition("#")
+            if len(code.strip()) == 6 and memo.strip():
+                seed_names[code.strip()] = memo.strip()
+    except OSError:
+        pass
+
     def name_of(code: str) -> str:
         df = listing["df"]
         if df is not None:
             hit = df[df["code"] == code]
             if len(hit):
                 return str(hit["name"].iloc[0])
-        return code
+        return seed_names.get(code, code)
+
+    def load_listing_bg():
+        """상장 목록이 없거나 오래됐으면 백그라운드로 받아 화면을 다시 그린다 (종목명 표시용)."""
+        def work():
+            try:
+                listing["df"] = fetch_listing()
+                root.after(0, lambda: refreshers.get(current_page["name"], lambda: None)())
+            except Exception as e:  # noqa: BLE001
+                print("상장목록 갱신 실패:", e)
+        threading.Thread(target=work, daemon=True).start()
+
+    current_page = {"name": "home"}
 
     # ---------- 레이아웃: 왼쪽 메뉴 / 오른쪽 페이지 ----------
     side = tk.Frame(root, bg="#2b3a4a", width=210)
@@ -177,6 +198,7 @@ def run_gui() -> None:
     menu_btns: dict[str, tk.Button] = {}
 
     def show(name: str):
+        current_page["name"] = name
         for k, fr in pages.items():
             fr.pack_forget()
         pages[name].pack(fill="both", expand=True, padx=16, pady=12)
@@ -786,6 +808,7 @@ def run_gui() -> None:
     root.after(1200, refresh_status)
     root.after(1500, refresh_home)
     root.after(3000, check_update_quietly)
+    root.after(500, load_listing_bg)  # 종목명 표시용 상장 목록 (매 실행 시 최신으로)
     root.mainloop()
 
 
