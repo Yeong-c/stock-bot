@@ -22,6 +22,7 @@ class State:
             "pending": {},        # chat_id -> action
             "last_error_sent": {},
         }
+        self._mtime = 0.0
         self.load()
 
     def load(self) -> None:
@@ -31,8 +32,20 @@ class State:
                     with open(self.path, encoding="utf-8") as f:
                         loaded = json.load(f)
                     self.data.update(loaded)
+                    self._mtime = self.path.stat().st_mtime
                 except Exception:
                     pass
+
+    def refresh_if_changed(self) -> bool:
+        """봇과 데스크톱 창이 같은 파일을 쓰므로, 다른 쪽이 바꿨으면 다시 읽는다."""
+        try:
+            m = self.path.stat().st_mtime
+        except OSError:
+            return False
+        if m > self._mtime:
+            self.load()
+            return True
+        return False
 
     def save(self) -> None:
         with self._lock:
@@ -41,6 +54,10 @@ class State:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=1)
             os.replace(tmp, self.path)
+            try:
+                self._mtime = self.path.stat().st_mtime
+            except OSError:
+                pass
 
     # ---- chat ----
     @property
@@ -49,6 +66,7 @@ class State:
 
     def add_chat(self, chat_id: int) -> None:
         with self._lock:
+            self.refresh_if_changed()
             if chat_id not in self.data["chat_ids"]:
                 self.data["chat_ids"].append(chat_id)
                 self.save()
@@ -65,6 +83,7 @@ class State:
 
     def add_watch(self, code: str) -> bool:
         with self._lock:
+            self.refresh_if_changed()
             if code in self.data["watchlist"]:
                 return False
             self.data["watchlist"].append(code)
@@ -73,6 +92,7 @@ class State:
 
     def remove_watch(self, code: str) -> bool:
         with self._lock:
+            self.refresh_if_changed()
             if code not in self.data["watchlist"]:
                 return False
             self.data["watchlist"].remove(code)
@@ -86,12 +106,14 @@ class State:
 
     def set_baseline(self, code: str, info: dict) -> None:
         with self._lock:
+            self.refresh_if_changed()
             self.data.setdefault("baselines", {})[code] = info
             self.save()
 
     # ---- minute alerts ----
     def add_minute_alert(self, date: str, rec: dict) -> None:
         with self._lock:
+            self.refresh_if_changed()
             self.data.setdefault("minute_alerts", {}).setdefault(date, []).append(rec)
             # 오래된 날짜 정리 (30일)
             keys = sorted(self.data["minute_alerts"].keys())

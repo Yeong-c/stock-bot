@@ -233,6 +233,7 @@ class StockBot:
 
     # ───────────────────────── 텍스트 라우팅 ─────────────────────────
     async def on_text(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        self.state.refresh_if_changed()
         cid = update.effective_chat.id
         text = (update.effective_message.text or "").strip()
 
@@ -507,6 +508,10 @@ class StockBot:
         if self._last_poll_day != now.date():
             self._last_poll_day = now.date()
             self.monitor.reset_day()
+        if self.state.refresh_if_changed():
+            missing = [c for c in self.state.watchlist if not (self.state.get_baseline(c) or {}).get("mean")]
+            for c in missing:
+                asyncio.get_running_loop().run_in_executor(None, self.monitor.build_baseline, c)
         if not is_trading_day(self.cfg, now.date()) or not in_market_hours(self.cfg, now):
             return
         if not self.state.watchlist or not self.state.chat_ids:
