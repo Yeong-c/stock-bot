@@ -31,8 +31,6 @@ DEFAULTS: dict[str, Any] = {
         "markets": ["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"],
     },
     "output": {"max_per_screener": 20},
-    "ai": {"api_key": "", "model": "claude-sonnet-5", "effort": "medium", "web_search": True, "candidates": 20,
-           "top_n": 10, "workers": 3, "auto_after_scan": True, "news_brief_time": "08:20"},
     "screeners": {
         "minute_burst": {
             "enabled": True, "multiple": 3.0, "trim_pct": 30, "lookback_days": 365,

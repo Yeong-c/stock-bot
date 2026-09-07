@@ -1,7 +1,9 @@
 .venv/
-data/
-logs/
+/data/
+/logs/
+/backup/
 __pycache__/
 *.pyc
 config.yaml
-backup/
+.pytest_cache/
+.DS_Store

@@ -187,8 +187,7 @@ def run_gui() -> None:
     refreshers: dict = {}
 
     tk.Label(side, text="아빠 주식\n알림봇", font=(FAM, 20, "bold"), fg="white", bg="#2b3a4a").pack(pady=(24, 18))
-    for key, label in [("home", "홈"), ("results", "검색 결과"), ("ai", "AI 추천"), ("news", "오늘 뉴스"),
-                       ("watch", "감시 종목"), ("alerts", "오늘 알림"), ("help", "설명")]:
+    for key, label in [("home", "홈"), ("results", "검색 결과"), ("watch", "감시 종목"), ("alerts", "오늘 알림"), ("help", "설명")]:
         b = CButton(side, label, lambda k=key: show(k), color="#2b3a4a", fg="white", padx=4, pady=12,
                     font=(FAM, 17, "bold"))
         b.pack(fill="x", padx=10, pady=3)
@@ -623,180 +622,6 @@ def run_gui() -> None:
 
     refreshers["watch"] = render_watch
 
-    # ================= AI 추천 =================
-    from stockbot.ai import ai_enabled
-    from stockbot.ai.news import load_latest_news, run_news_brief
-    from stockbot.ai.recommend import analyze_stock, format_stock_analysis, load_latest_recommend, run_recommend
-
-    ai_page = tk.Frame(body, bg="#f4f4f4")
-    pages["ai"] = ai_page
-    ai_top = tk.Frame(ai_page, bg="#f4f4f4")
-    ai_top.pack(fill="x")
-    ai_title = reg(tk.Label(ai_top, text="AI 추천", bg="#f4f4f4", fg="#222"), 4, True)
-    ai_title.pack(side="left")
-    ai_btn = big_button(ai_top, "지금 AI 분석", lambda: do_ai(), "#7c3aed", delta=-1)
-    ai_btn.pack(side="right")
-    ai_msg = reg(tk.Label(ai_top, text="", bg="#f4f4f4", fg="#1a5fb4"), -2)
-    ai_msg.pack(side="right", padx=12)
-    reg(tk.Label(ai_page, text="검색식 여러 개에 같이 걸린 종목(정량 50점) + AI 가 최근 동향·공시를 평가한 점수(정성 50점). 참고용이며 매매 판단은 직접.",
-                 bg="#f4f4f4", fg="#555", wraplength=820, justify="left"), -3).pack(anchor="w", pady=(2, 6))
-    ai_row = tk.Frame(ai_page, bg="#f4f4f4")
-    ai_row.pack(fill="x", pady=(0, 6))
-    reg(tk.Label(ai_row, text="종목 하나만 분석:", bg="#f4f4f4"), -1).pack(side="left")
-    ai_entry = reg(tk.Entry(ai_row, width=16, bd=2, relief="solid"), -1)
-    ai_entry.pack(side="left", padx=8, ipady=4)
-    ai_one_btn = big_button(ai_row, "종목 분석", lambda: do_ai_one(), "#4a90d9", delta=-2)
-    ai_one_btn.pack(side="left")
-    ai_back_btn = big_button(ai_row, "추천 목록으로", lambda: render_ai(), "#888", delta=-2)
-    ai_back_btn.pack(side="left", padx=8)
-    ai_entry.bind("<Return>", lambda e: do_ai_one())
-    ai_fr, ai_text = make_text(ai_page)
-    ai_fr.pack(fill="both", expand=True)
-    busy = {"ai": False, "news": False}
-
-    def do_ai_one():
-        q = ai_entry.get().strip()
-        if not q or busy["ai"]:
-            return
-        if not ai_enabled(cfg):
-            ai_msg.config(text="AI 키가 없습니다"); return
-
-        def go():
-            cands = resolve_name(q, listing["df"])
-            if not cands:
-                ai_msg.config(text=f"'{q}' 종목을 찾지 못했습니다"); return
-            code, name = next(((c, n) for c, n in cands if n == q), cands[0])
-            busy["ai"] = True
-            ai_one_btn.config(state="disabled")
-            ai_msg.config(text=f"{name} 분석 중… (30초~1분)")
-
-            def work():
-                try:
-                    from stockbot.data import naver
-                    rt = naver.fetch_realtime([code]).get(code, {})
-                    r = analyze_stock(load_config(), code, name, float(rt.get("price") or 0), float(rt.get("change_pct") or 0))
-                    txt = format_stock_analysis(r)
-                    root.after(0, lambda: (ai_msg.config(text="완료"), ai_title.config(text=f"{name} AI 분석"),
-                                           set_text(ai_text, [(txt + "\n", "n")])))
-                except Exception as e:  # noqa: BLE001
-                    root.after(0, lambda: ai_msg.config(text=f"실패: {str(e)[:70]}"))
-                finally:
-                    busy["ai"] = False
-                    root.after(0, lambda: ai_one_btn.config(state="normal"))
-            threading.Thread(target=work, daemon=True).start()
-        ensure_listing(go)
-
-    def render_ai():
-        if not ai_enabled(cfg):
-            ai_title.config(text="AI 추천 (꺼짐)")
-            set_text(ai_text, [("AI 기능이 꺼져 있습니다.\n", "h"),
-                               ("config.yaml 의 ai.api_key 에 Anthropic API 키를 넣으면 켜집니다. (https://console.anthropic.com)\n", "n")])
-            ai_btn.config(state="disabled"); return
-        res = load_latest_recommend()
-        if not res:
-            ai_title.config(text="AI 추천 (아직 없음)")
-            set_text(ai_text, [("아직 AI 추천 결과가 없습니다. 오른쪽 위 '지금 AI 분석'을 누르세요. (3~6분)\n", "n")]); return
-        ai_title.config(text=f"AI 추천 {len(res.get('items', []))}종목 — {res.get('date')} 기준")
-        parts = [(f"후보 {res.get('n_candidates')}종목 검토 · {res.get('generated_at', '')} 생성\n\n", "s")]
-        for i, c in enumerate(res.get("items", []), 1):
-            ai = c.get("ai", {})
-            chg = c.get("change_pct", 0)
-            parts += [(f"{i}. {c['name']} ", "h"), (f"({c['code']})  ", "s"), (f"{c['price']:,.0f}원  ", "b"),
-                      (f"{chg:+.1f}%   ", "up" if chg >= 0 else "down"), (f"종합 {c.get('final', 0)}점\n", "b"),
-                      (f"      검색식 {len(c.get('hits', []))}개: {', '.join(c.get('hits', []))}  ·  AI {ai.get('score', 0)}/10\n", "s"),
-                      (f"      💬 {ai.get('summary', '')}\n", "n")]
-            for x in ai.get("positives", [])[:3]:
-                parts.append((f"      ＋ {x}\n", "s"))
-            for x in ai.get("risks", [])[:3]:
-                parts.append((f"      － {x}\n", "s"))
-            for x in ai.get("recent", [])[:3]:
-                parts.append((f"      · {x}\n", "s"))
-            parts.append(("\n", "n"))
-        set_text(ai_text, parts)
-
-    def do_ai():
-        if busy["ai"]:
-            return
-        busy["ai"] = True
-        ai_btn.config(state="disabled")
-        ai_msg.config(text="AI 분석 중… (3~6분)")
-
-        def work():
-            try:
-                state.refresh_if_changed()
-                run_recommend(load_config(), None, today_alerts(), progress=lambda m: root.after(0, lambda m=m: ai_msg.config(text=m[:60])))
-                root.after(0, lambda: ai_msg.config(text="완료"))
-            except Exception as e:  # noqa: BLE001
-                root.after(0, lambda: ai_msg.config(text=f"실패: {str(e)[:70]}"))
-            finally:
-                busy["ai"] = False
-                root.after(0, lambda: (ai_btn.config(state="normal"), render_ai()))
-        threading.Thread(target=work, daemon=True).start()
-
-    refreshers["ai"] = render_ai
-
-    # ================= 오늘 뉴스 =================
-    news_page = tk.Frame(body, bg="#f4f4f4")
-    pages["news"] = news_page
-    nw_top = tk.Frame(news_page, bg="#f4f4f4")
-    nw_top.pack(fill="x")
-    nw_title = reg(tk.Label(nw_top, text="오늘 뉴스", bg="#f4f4f4", fg="#222"), 4, True)
-    nw_title.pack(side="left")
-    nw_btn = big_button(nw_top, "지금 뉴스 정리", lambda: do_news(), "#0e7490", delta=-1)
-    nw_btn.pack(side="right")
-    nw_msg = reg(tk.Label(nw_top, text="", bg="#f4f4f4", fg="#1a5fb4"), -2)
-    nw_msg.pack(side="right", padx=12)
-    reg(tk.Label(news_page, text="금리·환율·미국증시·유가·지정학·반도체 등 오늘 시장에 영향 주는 뉴스를 AI 가 정리합니다. 평일 08:20 자동.",
-                 bg="#f4f4f4", fg="#555", wraplength=820, justify="left"), -3).pack(anchor="w", pady=(2, 6))
-    nw_fr, nw_text = make_text(news_page)
-    nw_fr.pack(fill="both", expand=True)
-    _ICON = {"호재": ("▲ 호재", "up"), "악재": ("▼ 악재", "down"), "중립": ("● 중립", "s")}
-
-    def render_news():
-        if not ai_enabled(cfg):
-            nw_title.config(text="오늘 뉴스 (꺼짐)")
-            set_text(nw_text, [("AI 기능이 꺼져 있습니다.\n", "h"),
-                               ("config.yaml 의 ai.api_key 에 Anthropic API 키를 넣으면 켜집니다.\n", "n")])
-            nw_btn.config(state="disabled"); return
-        res = load_latest_news()
-        if not res:
-            nw_title.config(text="오늘 뉴스 (아직 없음)")
-            set_text(nw_text, [("아직 뉴스 정리가 없습니다. 오른쪽 위 '지금 뉴스 정리'를 누르세요. (1~3분)\n", "n")]); return
-        nw_title.config(text=f"오늘 뉴스 — {res.get('date')} {res.get('generated_at', '')[-5:]}")
-        parts = [(f"분위기: {res.get('mood', '')}  ", "h"), (f"{res.get('one_liner', '')}\n\n", "n")]
-        for it in res.get("items", []):
-            lab, tag = _ICON.get(it.get("impact", ""), ("● 중립", "s"))
-            parts += [(f"[{it.get('topic', '')}] ", "s"), (f"{it.get('headline', '')}  ", "h"), (lab + "\n", tag),
-                      (f"      {it.get('detail', '')}\n", "n")]
-            if it.get("affected"):
-                parts.append((f"      → 영향: {', '.join(it['affected'][:3])}\n", "s"))
-            parts.append(("\n", "n"))
-        if res.get("today_watch"):
-            parts.append(("오늘 볼 것\n", "h"))
-            for x in res["today_watch"][:4]:
-                parts.append((f"  · {x}\n", "n"))
-        set_text(nw_text, parts)
-
-    def do_news():
-        if busy["news"]:
-            return
-        busy["news"] = True
-        nw_btn.config(state="disabled")
-        nw_msg.config(text="뉴스 정리 중… (1~3분)")
-
-        def work():
-            try:
-                run_news_brief(load_config(), progress=lambda m: root.after(0, lambda m=m: nw_msg.config(text=m[:60])))
-                root.after(0, lambda: nw_msg.config(text="완료"))
-            except Exception as e:  # noqa: BLE001
-                root.after(0, lambda: nw_msg.config(text=f"실패: {str(e)[:70]}"))
-            finally:
-                busy["news"] = False
-                root.after(0, lambda: (nw_btn.config(state="normal"), render_news()))
-        threading.Thread(target=work, daemon=True).start()
-
-    refreshers["news"] = render_news
-
     # ================= 오늘 알림 =================
     apage = tk.Frame(body, bg="#f4f4f4")
     pages["alerts"] = apage
@@ -830,8 +655,7 @@ def run_gui() -> None:
     hparts.append(("• 홈: 봇 켜기/종료. '● 실행 중'이면 정상. 창은 닫지 말고 작게 두세요.\n"
                    "• 검색 결과: 위 버튼으로 검색식을 고르면 결과가 나옵니다. '지금 검색'은 1~3분 걸립니다. 장 마감 후 15:45에 자동으로도 돌아갑니다.\n"
                    "• 감시 종목: 종목 이름을 넣고 '추가'. 장중에 거래량이 터지면 홈·오늘 알림·텔레그램에 뜹니다.\n"
-                   "• AI 추천: 검색식 여러 개에 같이 걸린 종목을 AI 가 최근 뉴스·공시로 평가한 상위 10개. 장 마감 후 자동.\n"
-                   "• 오늘 뉴스: 금리·환율·미국증시 등 오늘 시장 뉴스 정리. 평일 아침 자동.\n"
+
                    "• 글씨가 작으면 왼쪽 아래 '크게'를 누르세요.\n", "n"))
     set_text(h_text, hparts)
 
@@ -850,11 +674,11 @@ def run_gui() -> None:
         root.after(200, bot.start)
     if "--smoke" in sys.argv:  # 테스트용: 모든 페이지를 그려보고 내용 요약 출력 후 종료
         def smoke():
-            for name in ("home", "results", "ai", "news", "watch", "alerts", "help"):
+            for name in ("home", "results", "watch", "alerts", "help"):
                 show(name)
                 root.update()
                 print(f"[{name}] ok")
-            for t, label in ((res_text, "results"), (ai_text, "ai"), (nw_text, "news"), (a_text, "alerts"), (h_text, "help"), (home_text, "home")):
+            for t, label in ((res_text, "results"), (a_text, "alerts"), (h_text, "help"), (home_text, "home")):
                 txt = t.get("1.0", "end").strip()
                 print(f"  {label}: {len(txt)}자 / 첫줄: {txt.splitlines()[0][:70] if txt else '(빈칸)'}")
             print("  watch rows:", len(check_vars), "|", list(check_vars)[:3])

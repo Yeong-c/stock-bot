@@ -20,9 +20,6 @@ from .data.universe import fetch_listing, load_latest_listing, resolve_name
 from .screeners.minute import MinuteMonitor
 from .screeners.runner import load_latest_result, run_daily_scan
 from . import updater
-from .ai import ai_enabled
-from .ai.recommend import analyze_stock, format_recommend, format_stock_analysis, load_latest_recommend, run_recommend
-from .ai.news import format_news, load_latest_news, run_news_brief
 from .state import State
 
 log = logging.getLogger("stockbot.bot")
@@ -33,12 +30,10 @@ BTN_ADD = "➕ 감시 추가"
 BTN_DEL = "➖ 감시 삭제"
 BTN_SCAN = "🔎 지금 검색"
 BTN_HELP = "❓ 도움말"
-BTN_AI = "🤖 AI 추천"
-BTN_NEWS = "📰 오늘 뉴스"
 # python-telegram-bot v22: run_daily 의 days 는 0=일요일 … 6=토요일 → 월~금 = (1,2,3,4,5)
 WEEKDAYS = (1, 2, 3, 4, 5)
 KEYBOARD = ReplyKeyboardMarkup(
-    [[BTN_RESULTS, BTN_WATCH], [BTN_AI, BTN_NEWS], [BTN_ADD, BTN_DEL], [BTN_SCAN, BTN_HELP]],
+    [[BTN_RESULTS, BTN_WATCH], [BTN_ADD, BTN_DEL], [BTN_SCAN, BTN_HELP]],
     resize_keyboard=True, is_persistent=True,
 )
 
@@ -119,8 +114,6 @@ class StockBot:
         a.add_handler(CommandHandler("scan", self.cmd_scan))
         a.add_handler(CommandHandler("help", self.cmd_help))
         a.add_handler(CommandHandler("update", self.cmd_update))
-        a.add_handler(CommandHandler("ai", lambda u, c: self.ai_menu(u)))
-        a.add_handler(CommandHandler("news", lambda u, c: self.news_menu(u)))
         a.add_handler(CommandHandler("version", self.cmd_version))
         a.add_handler(CallbackQueryHandler(self.on_callback))
         a.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
@@ -133,8 +126,6 @@ class StockBot:
                      days=WEEKDAYS, name="prepare")
         jq.run_daily(self.job_daily_scan, time=parse_hhmm(sch.get("daily_scan_time", "15:45")),
                      days=WEEKDAYS, name="daily_scan")
-        jq.run_daily(self.job_news_brief, time=parse_hhmm(self.cfg["ai"].get("news_brief_time", "08:20")),
-                     days=WEEKDAYS, name="news_brief")
 
     async def on_error(self, update: object, ctx: ContextTypes.DEFAULT_TYPE):
         err = ctx.error
@@ -279,21 +270,11 @@ class StockBot:
         elif text == BTN_SCAN:
             self.state.set_pending(cid, None)
             await self.screener_menu(update, "scan")
-        elif text == BTN_AI:
-            self.state.set_pending(cid, None)
-            await self.ai_menu(update)
-        elif text == BTN_NEWS:
-            self.state.set_pending(cid, None)
-            await self.news_menu(update)
         elif pending == "add":
             await self.handle_add(update, text)
         elif pending == "del":
             await self.handle_del(update, text)
         else:
-            m2 = re.match(r"^(.+?)\s*(분석|AI분석|ai분석)\s*$", text)
-            if m2:
-                await self.handle_analyze(update, m2.group(1).strip())
-                return
             m = re.match(r"^(.+?)\s*(추가|삭제|빼|제거)\s*$", text)
             if m:
                 q, act = m.group(1), m.group(2)
@@ -302,7 +283,7 @@ class StockBot:
                 else:
                     await self.handle_del(update, q)
             else:
-                await self.reply(update, "아래 버튼을 눌러 사용하세요. (종목 이름 뒤에 '추가'/'삭제'/'분석'을 붙여 보내도 됩니다. 예: 삼성전자 분석)")
+                await self.reply(update, "아래 버튼을 눌러 사용하세요. (종목 이름 뒤에 '추가'/'삭제'를 붙여 보내도 됩니다)")
 
     # ───────────────────────── 감시 종목 관리 ─────────────────────────
     async def handle_add(self, update: Update, query: str):
@@ -373,14 +354,6 @@ class StockBot:
             return
         act, _, code = (q.data or "").partition(":")
         self.state.set_pending(cid, None)
-        if act == "ai" and code == "run":
-            await q.edit_message_text("AI 분석을 시작합니다…")
-            await self.run_ai(cid)
-            return
-        if act == "news" and code == "run":
-            await q.edit_message_text("뉴스 정리를 시작합니다…")
-            await self.run_news(cid)
-            return
         if act in ("scan", "res"):
             try:
                 await q.edit_message_text(f"{'전체' if code == 'all' else F.screener_label(code)} 선택")
@@ -483,89 +456,6 @@ class StockBot:
         if key == "all":
             await self.send_minute_summary(chat_id, out.get("date", ""))
 
-    # ───────────────────────── AI 추천 / 뉴스 ─────────────────────────
-    def _ai_off_text(self) -> str:
-        return "AI 기능이 꺼져 있습니다. config.yaml 의 ai.api_key 에 Anthropic API 키를 넣으면 켜집니다."
-
-    async def ai_menu(self, update: Update):
-        if not ai_enabled(self.cfg):
-            await self.reply(update, self._ai_off_text()); return
-        res = load_latest_recommend()
-        today = now_kst().strftime("%Y-%m-%d")
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🤖 지금 AI 분석 실행 (3~6분)", callback_data="ai:run")]])
-        if res:
-            for m in F.split_message(format_recommend(res)):
-                await self.reply(update, m)
-            note = "오늘 결과입니다." if res.get("date") == today else f"{res.get('date')} 결과입니다. 오늘 장 마감 후 자동으로 갱신됩니다."
-            await update.effective_message.reply_text(note + " 다시 분석하려면 아래 버튼.", reply_markup=kb)
-        else:
-            await update.effective_message.reply_text("아직 AI 추천 결과가 없습니다.", reply_markup=kb)
-
-    async def run_ai(self, chat_id: int, out: dict | None = None):
-        if not ai_enabled(self.cfg):
-            await self.app.bot.send_message(chat_id, self._ai_off_text(), reply_markup=KEYBOARD); return
-        if self._scan_lock.locked():
-            await self.app.bot.send_message(chat_id, "다른 작업이 진행 중입니다. 잠시 후 다시 눌러주세요.", reply_markup=KEYBOARD); return
-        async with self._scan_lock:
-            await self.app.bot.send_message(chat_id, "🤖 AI 가 후보 종목의 동향·공시를 분석 중입니다… (3~6분)", reply_markup=KEYBOARD)
-            try:
-                alerts = self.state.minute_alerts(now_kst().strftime("%Y-%m-%d"))
-                res = await asyncio.to_thread(run_recommend, self.cfg, out, alerts)
-            except Exception as e:  # noqa: BLE001
-                await self.notify_error("AI 추천", e); return
-        for m in F.split_message(format_recommend(res)):
-            await self.send_all(m)
-
-    async def handle_analyze(self, update: Update, query: str):
-        """'삼성전자 분석' → 그 종목만 AI 분석 (이전 분석 기록 참고·누적)."""
-        if not ai_enabled(self.cfg):
-            await self.reply(update, self._ai_off_text()); return
-        if self.listing is None:
-            await self.refresh_listing()
-        cands = resolve_name(query, self.listing) if self.listing is not None else []
-        if not cands:
-            await self.reply(update, f"'{query}' 종목을 찾지 못했습니다."); return
-        code, name = next(((c, n) for c, n in cands if n == query), cands[0])
-        await self.reply(update, f"🔍 {name} 을(를) AI 가 분석 중입니다… (30초~1분)")
-        try:
-            from .data import naver
-            rt = (await asyncio.to_thread(naver.fetch_realtime, [code])).get(code, {})
-            r = await asyncio.to_thread(analyze_stock, self.cfg, code, name, float(rt.get("price") or 0), float(rt.get("change_pct") or 0))
-        except Exception as e:  # noqa: BLE001
-            await self.notify_error("종목 AI 분석", e); return
-        await self.reply(update, format_stock_analysis(r))
-
-    async def news_menu(self, update: Update):
-        if not ai_enabled(self.cfg):
-            await self.reply(update, self._ai_off_text()); return
-        res = load_latest_news()
-        today = now_kst().strftime("%Y-%m-%d")
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📰 지금 뉴스 정리 (1~3분)", callback_data="news:run")]])
-        if res:
-            for m in F.split_message(format_news(res)):
-                await self.reply(update, m)
-            note = "오늘 아침 정리입니다." if res.get("date") == today else f"{res.get('date')} 정리입니다."
-            await update.effective_message.reply_text(note + " 새로 정리하려면 아래 버튼.", reply_markup=kb)
-        else:
-            await update.effective_message.reply_text("아직 뉴스 정리가 없습니다. 평일 아침 08:20 에 자동으로 옵니다.", reply_markup=kb)
-
-    async def run_news(self, chat_id: int | None):
-        if not ai_enabled(self.cfg):
-            if chat_id:
-                await self.app.bot.send_message(chat_id, self._ai_off_text(), reply_markup=KEYBOARD)
-            return
-        try:
-            res = await asyncio.to_thread(run_news_brief, self.cfg)
-        except Exception as e:  # noqa: BLE001
-            await self.notify_error("아침 뉴스 정리", e); return
-        for m in F.split_message(format_news(res)):
-            await self.send_all(m)
-
-    async def job_news_brief(self, ctx: ContextTypes.DEFAULT_TYPE):
-        if not is_trading_day(self.cfg) or not ai_enabled(self.cfg):
-            return
-        await self.run_news(None)
-
     async def show_results(self, update: Update):
         await self.send_screener(update.effective_chat.id, "all", fresh=False)
 
@@ -611,9 +501,6 @@ class StockBot:
                     await self.send_all(m)
                 for cid in self.state.chat_ids:
                     await self.send_minute_summary(cid, today)
-        if auto and ai_enabled(self.cfg) and self.cfg["ai"].get("auto_after_scan", True):
-            for cid in self.state.chat_ids[:1]:
-                await self.run_ai(cid, out)
 
     # ───────────────────────── 예약 작업 ─────────────────────────
     async def job_poll(self, ctx: ContextTypes.DEFAULT_TYPE):
