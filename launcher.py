@@ -495,28 +495,63 @@ def run_gui() -> None:
     entry.pack(side="left", padx=8, ipady=6)
     add_btn = big_button(wtop, "추가", lambda: do_add(), "#1a8f3a", delta=-1)
     add_btn.pack(side="left", padx=4)
-    del_btn = big_button(wtop, "선택한 종목 삭제", lambda: do_del(), "#c0392b", delta=-1)
+    del_btn = big_button(wtop, "체크한 종목 삭제", lambda: do_del(), "#c0392b", delta=-1)
     del_btn.pack(side="left", padx=12)
     wmsg = reg(tk.Label(wpage, text="", bg="#f4f4f4", fg="#1a5fb4", wraplength=800, justify="left"), -2)
     wmsg.pack(anchor="w", pady=(4, 6))
+    # 체크박스 목록 (여러 종목 체크 → 한 번에 삭제)
     lb_fr = tk.Frame(wpage, bg="white", bd=1, relief="solid")
     lb_fr.pack(fill="both", expand=True)
-    wlist = reg(tk.Listbox(lb_fr, bd=0, highlightthickness=0, selectbackground="#4a90d9", activestyle="none"), 0)
-    wlist.pack(side="left", fill="both", expand=True, padx=8, pady=6)
-    wsb = ttk.Scrollbar(lb_fr, command=wlist.yview)
+    canvas = tk.Canvas(lb_fr, bg="white", bd=0, highlightthickness=0)
+    wsb = ttk.Scrollbar(lb_fr, command=canvas.yview)
+    inner = tk.Frame(canvas, bg="white")
+    inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+    canvas.configure(yscrollcommand=wsb.set)
     wsb.pack(side="right", fill="y")
-    wlist.configure(yscrollcommand=wsb.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
+    canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 40) if abs(e.delta) >= 40 else -e.delta, "units"))
+    check_vars: dict[str, tk.BooleanVar] = {}
     entry.bind("<Return>", lambda e: do_add())
+
+    sel_row = tk.Frame(wpage, bg="#f4f4f4")
+    sel_row.pack(fill="x", pady=(6, 0))
+    big_button(sel_row, "전체 선택", lambda: set_all(True), "#888", delta=-3).pack(side="left")
+    big_button(sel_row, "선택 해제", lambda: set_all(False), "#888", delta=-3).pack(side="left", padx=6)
+    sel_cnt = reg(tk.Label(sel_row, text="", bg="#f4f4f4", fg="#555"), -2)
+    sel_cnt.pack(side="left", padx=10)
+
+    def update_count():
+        n = sum(1 for v in check_vars.values() if v.get())
+        sel_cnt.config(text=f"{n}개 선택됨" if n else "삭제할 종목 앞의 네모를 체크하세요")
+
+    def set_all(val: bool):
+        for v in check_vars.values():
+            v.set(val)
+        update_count()
 
     def render_watch():
         state.refresh_if_changed()
-        wlist.delete(0, "end")
-        for i, c in enumerate(state.watchlist, 1):
+        for w in inner.winfo_children():
+            w.destroy()
+        prev = {c: v.get() for c, v in check_vars.items()}
+        check_vars.clear()
+        wl = state.watchlist
+        if not wl:
+            reg(tk.Label(inner, text="  감시 종목이 없습니다. 위에 종목 이름을 넣고 '추가'를 누르세요.", bg="white", fg="#666"), 0).pack(anchor="w", pady=8)
+        for i, c in enumerate(wl, 1):
             b = state.get_baseline(c) or {}
             info = f"평소 1분 {b['mean']:,.0f}주" if b.get("mean") else "기준값 준비 중"
-            wlist.insert("end", f"  {i}.  {name_of(c)}  ({c})   —   {info}")
-        if not state.watchlist:
-            wlist.insert("end", "  감시 종목이 없습니다. 위에 종목 이름을 넣고 '추가'를 누르세요.")
+            var = tk.BooleanVar(value=prev.get(c, False))
+            check_vars[c] = var
+            cb = tk.Checkbutton(inner, text=f"  {i}.  {name_of(c)}  ({c})   —   {info}", variable=var, bg="white",
+                                activebackground="white", anchor="w", padx=10, pady=6, command=update_count,
+                                selectcolor="white" if os.name != "nt" else "#e8f0fe")
+            reg(cb, 0)
+            cb.pack(fill="x", anchor="w")
+            tk.Frame(inner, bg="#eee", height=1).pack(fill="x")
+        update_count()
 
     def ensure_listing(then):
         if listing["df"] is not None:
@@ -576,18 +611,15 @@ def run_gui() -> None:
         ensure_listing(go)
 
     def do_del():
-        idx = wlist.curselection()
-        if not idx or not state.watchlist:
-            wmsg.config(text="목록에서 뺄 종목을 먼저 클릭하세요."); return
-        i = idx[0]
-        if i >= len(state.watchlist):
-            return
-        code = state.watchlist[i]
-        name = name_of(code)
-        if messagebox.askyesno("삭제", f"{name} 을(를) 감시에서 뺄까요?"):
-            state.remove_watch(code)
+        codes = [c for c, v in check_vars.items() if v.get() and c in state.watchlist]
+        if not codes:
+            wmsg.config(text="삭제할 종목 앞의 네모를 먼저 체크하세요. (여러 개 가능)"); return
+        names = ", ".join(name_of(c) for c in codes)
+        if messagebox.askyesno("삭제", f"{len(codes)}개 종목을 감시에서 뺄까요?\n{names}"):
+            for c in codes:
+                state.remove_watch(c)
             render_watch()
-            wmsg.config(text=f"{name} 을(를) 감시에서 뺐습니다.")
+            wmsg.config(text=f"감시에서 뺐습니다: {names}")
 
     refreshers["watch"] = render_watch
 
@@ -825,7 +857,7 @@ def run_gui() -> None:
             for t, label in ((res_text, "results"), (ai_text, "ai"), (nw_text, "news"), (a_text, "alerts"), (h_text, "help"), (home_text, "home")):
                 txt = t.get("1.0", "end").strip()
                 print(f"  {label}: {len(txt)}자 / 첫줄: {txt.splitlines()[0][:70] if txt else '(빈칸)'}")
-            print("  watch rows:", wlist.size(), "|", wlist.get(0)[:70])
+            print("  watch rows:", len(check_vars), "|", list(check_vars)[:3])
             print("  screener buttons:", [b.cget('text') for b in sbtns.values()])
             root.destroy()
         root.after(800, smoke)
