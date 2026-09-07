@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────
+#  검색식 규칙 파일 (screeners.yaml)
+#  이 파일은 업데이트(/update) 때 함께 내려갑니다. 검색식 숫자를 바꿀 때는 여기를 고치고 푸시하세요.
+#  config.yaml 에는 토큰·키·개인 설정만 둡니다. config.yaml 에 screeners/filters/output 이 남아 있어도 무시됩니다.
+#  (개인 PC 에서 규칙을 따로 쓰려면 config.yaml 에 override_rules: true)
+# ─────────────────────────────────────────────────────────────
+
+filters:
+  min_marcap_krw: 100000000000     # 시가총액 1,000억 미만 제외
+  exclude_hwangi: true             # 투자주의환기종목 제외
+  exclude_admin: true              # 관리종목 제외
+  exclude_risk: true               # 투자위험종목 제외 (주의·경고는 포함)
+  exclude_halt: true               # 거래정지·정리매매 종목 제외
+  exclude_spac: true               # 스팩 제외
+  exclude_preferred: true          # 우선주 제외
+  markets: ["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"]
+
+output:
+  repeat_days: 20                  # 같은 검색식에 최근 N일 안에 떴던 종목은 '이전에 뜬 종목'으로 접음
+  max_per_screener: 20             # 텔레그램 메시지에 표시할 검색식당 종목 수 (데스크톱은 전부)
+
+screeners:
+  minute_burst:                    # 1. 분봉 거래폭발 (장중 실시간): 1분 거래량 ≥ 평소 × multiple
+    enabled: true
+    multiple: 6.0                  # 평소의 6배
+    top_pct: 60                    # 평소 = 1분봉 거래량(최대 1년) 상위 60% 평균
+    lookback_days: 365
+    cooldown_minutes: 10           # 같은 종목 재알림 간격
+    ignore_first_minutes: 5        # 장 시작 직후 N분은 알림 제외
+  bottom_accum:                    # 2. 바닥 매집
+    enabled: true
+    min_decline_years: 2           # 고점이 최소 N년 전
+    drop_pct: 60                   # 고점 대비 N% 이상 하락
+    months: 2                      # 월봉 연속 양봉 개수
+    include_current_month: true
+  crash_volume:                    # 3. 급락 수급
+    enabled: true
+    lookback_days: 30
+    drop_pct: 50
+    vol_multiple: 2.5
+    vol_avg_days: 3
+  surge_pullback:                  # 4. 급등 눌림
+    enabled: true
+    lookback_days: 20
+    surge_pct: 27
+    pullback_pct: 30
+  aligned_breakout:                # 5. 정배열 돌파
+    enabled: true
+    vol_multiple: 3.0
+    vol_avg_days: 3
+    min_change_pct: 4
+    max_change_pct: 15
+  aligned_pullback:                # 5-b. 정배열 깊은눌림
+    enabled: true
+    drop_from_high_pct: 30
+    high_lookback_days: 120
+  daily_burst:                     # 6. 일봉 거래폭발: 당일 거래량 ≥ 3년 일봉 거래량 상위 60% 평균 × 6
+    enabled: true
+    multiple: 6.0
+    top_pct: 60
+    lookback_years: 3

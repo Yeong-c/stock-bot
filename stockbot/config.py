@@ -68,13 +68,25 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
+RULES_PATH = ROOT / "screeners.yaml"
+RULE_SECTIONS = ("filters", "output", "screeners")
+
+
 def load_config(path: Path | None = None) -> dict[str, Any]:
+    """DEFAULTS ← screeners.yaml(규칙, 업데이트로 갱신) ← config.yaml(개인 설정).
+    config.yaml 의 규칙 섹션은 screeners.yaml 이 있으면 무시 (override_rules: true 면 적용)."""
     path = path or CONFIG_PATH
     raw: dict = {}
     if path.exists():
         with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
-    cfg = _merge(DEFAULTS, raw)
+    rules: dict = {}
+    if RULES_PATH.exists():
+        with open(RULES_PATH, encoding="utf-8") as f:
+            rules = yaml.safe_load(f) or {}
+        if not raw.get("override_rules"):
+            raw = {k: v for k, v in raw.items() if k not in RULE_SECTIONS}
+    cfg = _merge(_merge(DEFAULTS, rules), raw)
     cfg["watchlist"] = [str(c).zfill(6) for c in (cfg.get("watchlist") or [])]
     cfg["telegram"]["allowed_chat_ids"] = [int(x) for x in (cfg["telegram"].get("allowed_chat_ids") or [])]
     return cfg
