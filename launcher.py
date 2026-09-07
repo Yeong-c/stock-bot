@@ -323,7 +323,7 @@ def run_gui() -> None:
 
     def alert_parts(alerts, limit=None):
         if not alerts:
-            return [("아직 알림이 없습니다.\n", "n"), ("장중(09:05~15:30)에 감시 종목의 1분 거래량이 평소의 3배 이상 터지면 여기와 텔레그램에 뜹니다.\n", "s")]
+            return [("아직 알림이 없습니다.\n", "n"), ("장중(09:05~15:30)에 감시 종목의 1분 거래량이 평소의 6배 이상 터지면 여기와 텔레그램에 뜹니다.\n", "s")]
         parts = []
         for a in (alerts[-limit:] if limit else alerts)[::-1]:
             chg = a.get("change_pct", 0)
@@ -524,7 +524,9 @@ def run_gui() -> None:
     wpage = tk.Frame(body, bg="#f4f4f4")
     pages["watch"] = wpage
     reg(tk.Label(wpage, text="분봉 거래폭발 감시 종목", bg="#f4f4f4", fg="#222"), 4, True).pack(anchor="w")
-    reg(tk.Label(wpage, text="장중에 1분 거래량이 평소의 3배 이상 터지면 알려주는 종목들입니다.", bg="#f4f4f4", fg="#555"), -2).pack(anchor="w", pady=(0, 8))
+    _mb = cfg["screeners"]["minute_burst"]
+    reg(tk.Label(wpage, text=f"장중에 1분 거래량이 평소(상위 {_mb.get('top_pct', 60):.0f}% 평균)의 {_mb.get('multiple', 6):.0f}배 이상 터지면 알려주는 종목들입니다.",
+                 bg="#f4f4f4", fg="#555"), -2).pack(anchor="w", pady=(0, 8))
     wtop = tk.Frame(wpage, bg="#f4f4f4")
     wtop.pack(fill="x", pady=6)
     reg(tk.Label(wtop, text="종목 이름:", bg="#f4f4f4"), 0).pack(side="left")

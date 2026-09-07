@@ -24,6 +24,26 @@ class State:
         }
         self._mtime = 0.0
         self.load()
+        self._seed_watchlist()
+
+    def _seed_watchlist(self) -> None:
+        """감시 목록이 비어 있으면 프로젝트 루트의 watchlist_seed.txt 로 채운다 (백업 복구용)."""
+        if self.data.get("watchlist"):
+            return
+        seed = self.path.parent.parent / "watchlist_seed.txt"
+        if not seed.exists():
+            return
+        codes = []
+        try:
+            for ln in seed.read_text(encoding="utf-8").splitlines():
+                code = ln.split("#", 1)[0].strip()
+                if len(code) == 6 and code.isdigit():
+                    codes.append(code)
+        except OSError:
+            return
+        if codes:
+            self.data["watchlist"] = list(dict.fromkeys(codes))
+            self.save()
 
     def load(self) -> None:
         with self._lock:
@@ -58,6 +78,38 @@ class State:
                 self._mtime = self.path.stat().st_mtime
             except OSError:
                 pass
+            self._daily_backup()
+
+    def _daily_backup(self) -> None:
+        """하루 한 번 backup/state_YYYYMMDD.json 으로 복사 (감시종목·연결 정보 보호, 30개 보관)."""
+        import datetime as _dt
+        import shutil
+        bdir = self.path.parent.parent / "backup"
+        try:
+            bdir.mkdir(parents=True, exist_ok=True)
+            dst = bdir / f"state_{_dt.date.today():%Y%m%d}.json"
+            if not dst.exists():
+                shutil.copy2(self.path, dst)
+                for old in sorted(bdir.glob("state_*.json"))[:-30]:
+                    old.unlink(missing_ok=True)
+        except OSError:
+            pass
+            self._daily_backup()
+
+    def _daily_backup(self) -> None:
+        """하루 한 번 backup/state_YYYYMMDD.json 으로 복사 (감시종목·연결 정보 보호, 30개 보관)."""
+        import datetime as _dt
+        import shutil
+        bdir = self.path.parent.parent / "backup"
+        try:
+            bdir.mkdir(parents=True, exist_ok=True)
+            dst = bdir / f"state_{_dt.date.today():%Y%m%d}.json"
+            if not dst.exists():
+                shutil.copy2(self.path, dst)
+                for old in sorted(bdir.glob("state_*.json"))[:-30]:
+                    old.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     # ---- chat ----
     @property
