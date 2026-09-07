@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────
+#  아빠 주식 알림봇 설정 파일
+#  (따옴표 안의 값만 바꾸세요. 줄 앞의 공백은 지우면 안 됩니다.)
+# ─────────────────────────────────────────────────────────────
+
+telegram:
+  # 1) 텔레그램 @BotFather 에서 봇을 만들면 주는 토큰
+  bot_token: "여기에_봇_토큰_붙여넣기"
+  # 2) 아빠가 텔레그램에서 봇에게 이 숫자를 보내면 연결됩니다
+  pair_code: "1234"
+  # (선택) 채팅 ID를 직접 적어도 됩니다. 비워두면 pair_code 로 연결
+  allowed_chat_ids: []
+
+kiwoom:
+  # 키움 REST API (https://openapi.kiwoom.com) 에서 발급. 비워두면 네이버 데이터만 사용
+  # 1번 '분봉 거래폭발'의 기준값(1년치 1분봉)을 만들 때만 필요합니다.
+  app_key: ""
+  app_secret: ""
+  is_mock: false
+
+schedule:
+  timezone: "Asia/Seoul"
+  market_open: "09:00"
+  market_close: "15:30"
+  realtime_poll_seconds: 60        # 1번 분봉 감시 주기(초)
+  premarket_prepare_time: "08:30"  # 감시 준비(기준값 갱신) 시각
+  daily_scan_time: "15:45"         # 장 마감 후 검색식 2~6 실행 시각
+  # 임시 휴장일이 있으면 여기에 추가 (주말은 자동 제외)
+  holidays: []
+
+filters:
+  min_marcap_krw: 100000000000     # 시가총액 1,000억 미만 제외
+  exclude_hwangi: true             # 투자주의환기종목 제외
+  exclude_spac: true               # 스팩 제외
+  exclude_preferred: false         # 우선주 제외 여부
+  markets: ["KOSPI", "KOSDAQ", "KOSDAQ GLOBAL"]
+
+update:
+  # 업데이트를 받아올 GitHub 공개 저장소 (예: "hong-yeongchae/dad-stock-bot"). 비우면 업데이트 기능 꺼짐
+  repo: ""
+  branch: "main"
+
+output:
+  max_per_screener: 10             # 검색식당 최대 표시 종목 수 (아버지 눈 편하게 10개)
+
+screeners:
+  minute_burst:                    # 1. 분봉 거래폭발 (장중 실시간)
+    enabled: true
+    multiple: 3.0                  # 기준 평균의 몇 배
+    trim_pct: 30                   # 상·하위 30% 제외 → 중간 40% 평균
+    lookback_days: 365             # 기준 기간(달력일). 키움 연결 시 최대 1년
+    cooldown_minutes: 10           # 같은 종목 재알림 간격
+    ignore_first_minutes: 5        # 장 시작 직후 N분은 알림 제외 (시초가 거래 폭주 방지)
+  bottom_accum:                    # 2. 바닥 매집
+    enabled: true
+    min_decline_years: 2           # 고점이 최소 N년 전
+    drop_pct: 60                   # 고점 대비 N% 이상 하락
+    months: 2                      # 월봉 연속 양봉 개수
+    include_current_month: true    # 진행 중인 이번 달 월봉 포함
+  crash_volume:                    # 3. 급락 수급
+    enabled: true
+    lookback_days: 30
+    drop_pct: 50
+    vol_multiple: 2.5
+    vol_avg_days: 3
+  surge_pullback:                  # 4. 급등 눌림
+    enabled: true
+    lookback_days: 20
+    surge_pct: 27
+    pullback_pct: 30
+  aligned_breakout:                # 5. 정배열 돌파
+    enabled: true
+    vol_multiple: 3.0
+    vol_avg_days: 3
+    min_change_pct: 4
+    max_change_pct: 15
+  aligned_pullback:                # 5-b. 정배열 깊은눌림 (정배열 + 고점 대비 30%↓)
+    enabled: true
+    drop_from_high_pct: 30
+    high_lookback_days: 120
+  daily_burst:                     # 6. 일봉 거래폭발
+    enabled: true
+    multiple: 3.0
+    trim_pct: 30
+    lookback_years: 3
+
+# 1번 분봉 감시 초기 종목 (텔레그램에서 '감시 추가/삭제'로 언제든 바꿀 수 있음)
+watchlist:
+  - "005930"   # 삼성전자
+  - "000660"   # SK하이닉스
