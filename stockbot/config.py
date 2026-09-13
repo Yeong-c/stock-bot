@@ -44,7 +44,7 @@ DEFAULTS: dict[str, Any] = {
             "include_current_month": True,
         },
         "crash_volume": {
-            "enabled": True, "lookback_days": 30, "drop_pct": 50, "vol_multiple": 2.5, "vol_avg_days": 3,
+            "enabled": True, "lookback_days": 60, "drop_pct": 50, "vol_multiple": 2.5, "vol_avg_days": 3,
         },
         "surge_pullback": {"enabled": True, "lookback_days": 20, "surge_pct": 27, "pullback_pct": 30},
         "aligned_breakout": {
