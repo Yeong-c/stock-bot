@@ -37,7 +37,7 @@ screeners:
     enabled: true
     lookback_days: 60              # 60일 내 고점 기준 (2026-09-13 아버지 요청, 30→60)
     drop_pct: 50
-    vol_multiple: 2.5
+    vol_multiple: 3.0              # 거래량 3일 평균의 3배 (2.5→3)
     vol_avg_days: 3
   surge_pullback:                  # 4. 급등 눌림
     enabled: true

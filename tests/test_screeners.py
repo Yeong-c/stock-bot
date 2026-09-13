@@ -66,7 +66,7 @@ def test_crash_volume():
     vols = np.full(100, 100_000.0); vols[-1] = 300_000  # 3배
     df = make_df(closes, vols)
     s = D.run_crash_volume(df, ROW, DEFAULTS["screeners"]["crash_volume"], df["date"].iloc[-1].date())
-    assert s is not None and s.score >= 2.5
+    assert s is not None and s.score >= 3.0
     vols[-1] = 150_000
     df = make_df(closes, vols)
     assert D.run_crash_volume(df, ROW, DEFAULTS["screeners"]["crash_volume"], df["date"].iloc[-1].date()) is None
