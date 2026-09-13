@@ -36,7 +36,7 @@ DEFAULTS: dict[str, Any] = {
     "output": {"max_per_screener": 20, "repeat_days": 20},
     "screeners": {
         "minute_burst": {
-            "enabled": True, "multiple": 6.0, "top_pct": 60, "lookback_days": 365,
+            "enabled": True, "multiple": 20.0, "top_pct": 60, "lookback_days": 365,
             "cooldown_minutes": 10, "ignore_first_minutes": 5,
         },
         "bottom_accum": {

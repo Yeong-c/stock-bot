@@ -2,7 +2,7 @@
 
 기준값: 감시 종목별 1분봉 거래량(최대 1년치)을 큰 순으로 정렬해 상위 60% 의 평균.
         키움 API 연결 시 최대 1년, 미연결 시 네이버 7거래일치를 매일 누적.
-신호  : 방금 지난 1분 거래량이 기준값의 6배 이상.
+신호  : 방금 지난 1분 거래량이 기준값의 20배 이상 (screeners.yaml multiple).
 """
 from __future__ import annotations
 
@@ -135,7 +135,7 @@ class MinuteMonitor:
             if not base or float(base.get("mean", 0)) <= 0:
                 continue
             mult = vpm / float(base["mean"])
-            if mult < float(self.p.get("multiple", 6.0)):
+            if mult < float(self.p.get("multiple", 20.0)):
                 continue
             if since_open < float(self.p.get("ignore_first_minutes", 5)):
                 continue

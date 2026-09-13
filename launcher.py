@@ -345,7 +345,7 @@ def run_gui() -> None:
 
     def alert_parts(alerts, limit=None):
         if not alerts:
-            return [("아직 알림이 없습니다.\n", "n"), ("장중(09:05~15:30)에 감시 종목의 1분 거래량이 평소의 6배 이상 터지면 여기와 텔레그램에 뜹니다.\n", "s")]
+            return [("아직 알림이 없습니다.\n", "n"), ("장중(09:05~15:30)에 감시 종목의 1분 거래량이 평소의 20배 이상 폭증하면 여기와 텔레그램에 뜹니다.\n", "s")]
         parts = []
         for a in (alerts[-limit:] if limit else alerts)[::-1]:
             chg = a.get("change_pct", 0)

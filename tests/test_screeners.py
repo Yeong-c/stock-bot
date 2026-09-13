@@ -114,14 +114,14 @@ def test_minute_monitor_poll(monkeypatch, tmp_path):
     st.set_baseline("005930", {"mean": 1000.0, "bars": 100, "days": 5, "source": "test", "built": "x"})
     cfg = {"schedule": DEFAULTS["schedule"], "screeners": DEFAULTS["screeners"]}
     mon = M.MinuteMonitor(cfg, st, None)
-    seq = iter([100_000, 107_000])  # 1분 7,000주 = 기준의 7배
+    seq = iter([100_000, 125_000])  # 1분 25,000주 = 기준의 25배 (20배 이상)
     monkeypatch.setattr(M.naver, "fetch_realtime", lambda codes: {
         "005930": {"name": "삼성전자", "price": 70000, "change_pct": 1.0, "acc_volume": next(seq),
                    "open": 69000, "high": 0, "low": 0, "prev_close": 0, "status": "OPEN"}})
     t0 = dt.datetime(2026, 9, 3, 10, 0, tzinfo=M.now_kst().tzinfo)
     assert mon.poll(t0) == []
     alerts = mon.poll(t0 + dt.timedelta(minutes=1))
-    assert len(alerts) == 1 and alerts[0]["multiple"] == 7.0
+    assert len(alerts) == 1 and alerts[0]["multiple"] == 25.0
     assert st.minute_alerts("2026-09-03")
 
 

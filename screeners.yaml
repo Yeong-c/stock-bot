@@ -22,7 +22,7 @@ output:
 screeners:
   minute_burst:                    # 1. 분봉 거래폭발 (장중 실시간): 1분 거래량 ≥ 평소 × multiple
     enabled: true
-    multiple: 6.0                  # 평소의 6배
+    multiple: 20.0                 # 평소의 20배 이상 폭증 (2026-09-13 아버지 요청, 6배→20배)
     top_pct: 60                    # 평소 = 1분봉 거래량(최대 1년) 상위 60% 평균
     lookback_days: 365
     cooldown_minutes: 10           # 같은 종목 재알림 간격
