@@ -61,9 +61,9 @@ def test_bottom_accum_rejects_recent_peak():
 
 
 def test_crash_volume():
-    closes = np.full(60, 10_000.0)
-    closes[-25:] = 4_500  # 30일 내 고점 대비 −55%
-    vols = np.full(60, 100_000.0); vols[-1] = 300_000  # 3배
+    closes = np.full(100, 10_000.0)
+    closes[-25:] = 4_500  # 60일 내 고점 대비 −55%
+    vols = np.full(100, 100_000.0); vols[-1] = 300_000  # 3배
     df = make_df(closes, vols)
     s = D.run_crash_volume(df, ROW, DEFAULTS["screeners"]["crash_volume"], df["date"].iloc[-1].date())
     assert s is not None and s.score >= 2.5
